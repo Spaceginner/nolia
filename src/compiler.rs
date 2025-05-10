@@ -164,7 +164,7 @@ enum Type {
 }
 
 #[derive(Debug, Clone)]
-enum BlockTag {
+enum SBlockTag {
     Simple,
     Condition {
         check: SBlock,
@@ -347,7 +347,7 @@ enum Instruction {
 
 #[derive(Debug, Clone)]
 struct SBlock {
-    tag: Box<BlockTag>,
+    tag: Box<SBlockTag>,
     label: Option<Box<str>>,
     decls: Vec<Declaration>,
     code: Vec<Instruction>,
@@ -624,7 +624,7 @@ impl Compiler {
     pub fn compile(self, entry_func: Option<Path>) -> Result<(Vec<vm::CrateDeclaration>, Option<(vm::CrateId, u32)>), CompileError> {
         let mut entry_func_id = None;
         Ok((self.crates.into_iter().map(|(crate_id_raw, crate_)| {
-            let (mut items, item_map) =
+            let (mut items, mut item_map) =
                 crate_.item_store.into_iter().enumerate()
                     .map(|(i, (path, item))| (item.into(), (path, i)))
                     .collect::<(Vec<_>, HashMap<_, _>)>();
@@ -636,7 +636,72 @@ impl Compiler {
             let funcs = crate_.function_store.into_values()
                 .map(|func| vm::FunctionDeclaration {
                         code: match func.code {
-                            Block::Structured(s_block) => todo!("structured blocks are not supported"),
+                            Block::Structured(s_block) => {
+                                fn compile_instruction(
+                                    instr: Instruction,
+                                    block_starts_at: usize,
+                                    this_instr_at: usize,
+                                    var_scope: &mut Vec<HashMap<&str, usize>>,
+                                    label_scope: &mut HashMap<&str, usize>,
+                                    func_map: &HashMap<Path, (usize, FunctionType)>,
+                                    item_map: &mut HashMap<Path, usize>,
+                                ) -> Vec<vm::Op> {
+                                    match instr {
+                                        Instruction::DoBlock(block) => todo!(),
+                                        Instruction::LoadLiteral(lit) => todo!(),
+                                        Instruction::DoAction(ActionInstruction::Access { of, field }) => todo!(),
+                                        Instruction::DoAction(ActionInstruction::Call { what, args }) => todo!(),
+                                        Instruction::DoAction(ActionInstruction::MethodCall { what, method, args }) => todo!(),
+                                        Instruction::DoAction(ActionInstruction::Load { item }) => todo!(),
+                                        Instruction::Construct(ConstructInstruction::Data { what, fields }) => todo!(),
+                                        Instruction::Construct(ConstructInstruction::Array { vals }) => todo!(),
+                                        Instruction::DoStatement(StatementInstruction::Assignment { what, to }) => todo!(),
+                                        Instruction::DoStatement(StatementInstruction::Repeat { label }) => todo!(),
+                                        Instruction::DoStatement(StatementInstruction::Escape { label, value }) => todo!(),
+                                        Instruction::DoStatement(StatementInstruction::Return { value }) => todo!(),
+                                        Instruction::DoStatement(StatementInstruction::Throw { error }) => todo!(),
+                                    }
+                                }
+                                
+                                fn compile_s_block(
+                                    s_block: SBlock,
+                                    starts_at: usize,
+                                    var_scope: &mut Vec<HashMap<&str, usize>>,
+                                    label_scope: &mut HashMap<&str, usize>,
+                                    func_map: &HashMap<Path, (usize, FunctionType)>,
+                                    item_map: &mut HashMap<Path, usize>,
+                                ) -> Vec<vm::Op> {
+                                    let mut code = match *s_block.tag {
+                                        SBlockTag::Simple => 
+                                            s_block.code.into_iter().enumerate()
+                                                .map(|(i, instr)| compile_instruction(instr, starts_at, starts_at + i, var_scope, label_scope, func_map, item_map))
+                                                .reduce(|mut a, mut b| { a.append(&mut b); a })
+                                                .unwrap_or_else(|| vec![]),
+                                        SBlockTag::Condition { .. } => todo!(), 
+                                        SBlockTag::Selector { .. } => todo!(),
+                                        SBlockTag::Handle { .. } => todo!(),
+                                        SBlockTag::Unhandle => todo!(),
+                                        SBlockTag::Loop => todo!(),
+                                        SBlockTag::While { .. } => todo!(),
+                                        SBlockTag::DoWhile { .. } => todo!(),
+                                        SBlockTag::Over { .. } => todo!(),
+                                    };
+                                    
+                                    // fixme handle blocks with nothing
+                                    eprintln!("FIXME WARNING - HANDLE BLOCKS WITH NOTHING");
+                                    
+                                    code
+                                }
+
+                                compile_s_block(
+                                    s_block,
+                                    0,
+                                    &mut Vec::new(),
+                                    &mut HashMap::new(),
+                                    &func_map,
+                                    &mut item_map,
+                                )
+                            },
                             Block::Asm(asm) => {
                                 let label_store = asm.code.iter().enumerate()
                                     .filter_map(|(i, instr)| Some((instr.label.clone()?, i)))
