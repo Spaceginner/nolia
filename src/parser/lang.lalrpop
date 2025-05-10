@@ -1,0 +1,368 @@
+use crate::parser::ast::*;
+use either::Either;
+
+grammar;
+
+#[inline]
+Sep<T, S>: Vec<T> = {
+    ((<T> S)* T)? => match <> {
+        None => vec![],
+        Some((mut v, e)) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+#[inline]
+SepReq<T, S>: Vec<T> = {
+    <mut v:(<T> S)*> <e:T> => {
+        v.push(e);
+        v
+    }
+}
+
+#[inline]
+SepSep<T, S>: Vec<T> = <Sep<T, S>> S?;
+
+#[inline]
+OptDefault<T>: T = T? => <>.unwrap_or(Default::default());
+
+#[inline]
+SepSepReq<T, S>: Vec<T> = <SepReq<T, S>> S?;
+
+#[inline]
+Comma<T>: Vec<T> = SepSep<T, ",">;
+
+#[inline]
+Either<L, R>: Either<L, R> = {
+    L => Either::Left(<>),
+    R => Either::Right(<>),
+};
+
+// ------------------------------------------------------------------------------------------------
+
+// foobar_69
+Ident: &'input str = r"[a-zA-Z_]\w*";
+
+ItemRoot: ItemRoot<'input> = {
+    // #::
+    "#" "::" => ItemRoot::CrateRoot,
+    // #lib::
+    "#" <lib:Ident> "::" => ItemRoot::LibRoot {<>},
+    // $::
+    <updepth:"$"*> "::" => ItemRoot::ModRoot { updepth: updepth.len() },
+};
+
+// #::children::child_a
+Item: Item<'input> = <root:ItemRoot?> <path:SepReq<Ident, "::">> => Item {<>};
+
+Generics: Vec<Type<'input>> = "<" <Comma<Type>> ">";
+
+ConcreteType: ConcreteType<'input> = <item:Item> <generics:OptDefault<Generics>> => ConcreteType {<>};
+
+IntegerTypeSize: IntegerTypeSize = r"\d[\d_]*" => match <> {
+    "8" => IntegerTypeSize::Byte,
+    "16" => IntegerTypeSize::Word,
+    "32" => IntegerTypeSize::DWord,
+    "64" => IntegerTypeSize::QWord,
+    "128" => IntegerTypeSize::OWord,
+    _ => panic!("invalid integer type size")
+};
+
+PrimitiveType: PrimitiveType = {
+    "str" => PrimitiveType::String,
+    "char" => PrimitiveType::Char,
+    "bool" => PrimitiveType::Bool,
+    "void" => PrimitiveType::Void,
+    "i" <size:IntegerTypeSize> => PrimitiveType::Integer { signed: true, size },
+    "u" <size:IntegerTypeSize> => PrimitiveType::Integer { signed: false, size },
+};
+
+Type: Type<'input> = {
+    // @[Foo + Bar]
+    "@" "[" <SepReq<ConcreteType, "+">> "]" => Type::Op(<>),
+    // @Type
+    "@" <ConcreteType> => Type::Op(vec![<>]),
+    // JustType
+    ConcreteType => Type::Concrete(<>),
+    // %i16
+    "%" <PrimitiveType> => Type::Primitive(<>),
+    // !
+    "!" => Type::Never,
+    // []%i32
+    "[" "]" <Type> => Type::Array(Box::new(<>)),
+};
+
+// var: Type
+Capture: Capture<'input> = <name:Ident> ":" <r#type:Type> => Capture {<>};
+
+// |fuzz: T, foo: Bar| -> Choco <T> !Error, AnotherError
+#[inline]
+GenericDef: GenericDef<'input> = <name:Ident> <constraint:(":" <Type>)?> => GenericDef {<>};
+GenericDefs: GenericDefs<'input> = <defs:OptDefault<("<>" <Sep<GenericDef, ",">>)>> => GenericDefs {<>};
+#[inline]
+Errors: Vec<ConcreteType<'input>> = OptDefault<("!" <Comma<ConcreteType>>)>;
+Signature: Signature<'input> = "|" <captures:Comma<Capture>> "|" <r#return:("->" <Type>)?> <generics:GenericDefs> <errors:Errors> => Signature {<>};
+
+#[inline]
+LiteralIntegerSign: &'input str = { "-", "+" };
+LiteralIntegerRaw: (&'input str, &'input str) = {
+    r"\d[\d_]*" => ("", <>),
+    r"0d\s*\d[\d_]*" => ("0d", <>[2..].trim()),
+    r"0b\s*[01][01_]*" => ("0b", <>[2..].trim()),
+    r"0o\s*[0-7][0-7_]*" => ("0o", <>[2..].trim()),
+    r"0x\s*[[:xdigit:]][[[:xdigit:]]_]*" => ("0x", <>[2..].trim()),
+};
+#[inline]
+LiteralIntegerSuffixSize: &'input str = { "16", "32", "64", "128" };
+#[inline]
+LiteralIntegerSuffixSigness: &'input str = { "i", "u" };
+#[inline]
+LiteralIntegerSuffix: (&'input str, &'input str) = LiteralIntegerSuffixSize LiteralIntegerSuffixSigness;
+LiteralInteger: LiteralInteger = <sign:LiteralIntegerSign?> <int:LiteralIntegerRaw> <kind:LiteralIntegerSuffix?> => {
+    let kind = kind.unwrap_or(("i", "64"));
+    let sign = sign.unwrap_or("+");
+    let int = (int.0, format!("{sign}{}", int.1));
+    let parser = match kind {
+        ("i", "16") => |n, r| Ok::<_, std::num::ParseIntError>(LiteralInteger::I16(i16::from_str_radix(n, r)?)),
+        ("i", "32") => |n, r| Ok(LiteralInteger::I32(i32::from_str_radix(n, r)?)),
+        ("i", "64") => |n, r| Ok(LiteralInteger::I64(i64::from_str_radix(n, r)?)),
+        ("i", "128") => |n, r| Ok(LiteralInteger::I128(i128::from_str_radix(n, r)?)),
+        ("u", "16") => |n, r| Ok(LiteralInteger::U16(u16::from_str_radix(n, r)?)),
+        ("u", "32") => |n, r| Ok(LiteralInteger::U32(u32::from_str_radix(n, r)?)),
+        ("u", "64") => |n, r| Ok(LiteralInteger::U64(u64::from_str_radix(n, r)?)),
+        ("u", "128") => |n, r| Ok(LiteralInteger::U128(u128::from_str_radix(n, r)?)),
+        _ => unreachable!(),
+    };
+
+    match int {
+        ("" | "0d", dec) => parser(&dec, 10),
+        ("0b", bin) => parser(&bin, 2),
+        ("0o", oct) => parser(&oct, 8),
+        ("0x", hex) => parser(&hex, 16),
+        _ => unreachable!(),
+    }.unwrap()
+};
+#[inline]
+LiteralString: String = r#""(\\.|[^"])*""# => {
+    let mut buf = String::new();
+    let mut subbuf = String::new();
+    let mut escaping = false;
+    let mut ascii_parsing = 0;
+    let mut unicode_parsing = 0;
+    for c in <>.chars().skip(1) {
+        if !escaping && c == '\\' {
+            escaping = true;
+            continue;
+        };
+
+        if escaping {
+            buf.push(match c {
+                '\\' => '\\',
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                'x' => {
+                    ascii_parsing = 2+1;
+                    escaping = false;
+                    continue;
+                },
+                'u' => {
+                    unicode_parsing = 4+1;
+                    escaping = false;
+                    continue;
+                },
+                _ => {
+                    buf.push('\\');
+                    buf.push(c);
+                    escaping = false;
+                    continue;
+                },
+            });
+            escaping = false;
+        } else if ascii_parsing > 0 {
+            if ascii_parsing == 1 {
+                let code = u8::from_str_radix(&std::mem::take(&mut subbuf), 16).unwrap();
+                if code > 127 {
+                    panic!("invalid ascii char");
+                };
+                buf.push(code as char);
+                buf.push(c);
+            } else {
+                subbuf.push(c);
+            };
+            ascii_parsing -= 1;
+        } else if unicode_parsing > 0 {
+            if unicode_parsing == 1 {
+                let code = u32::from_str_radix(&std::mem::take(&mut subbuf), 16).unwrap();
+                buf.push(char::from_u32(code).unwrap());
+                buf.push(c);
+            } else {
+                subbuf.push(c);
+            };
+            unicode_parsing -= 1;
+        } else {
+            buf.push(c);
+        }
+    };
+    let _ = buf.pop();
+    buf
+};
+LiteralBool: bool = {
+    "true" => true,
+    "false" => false,
+};
+LiteralExpression: LiteralExpression = {
+    // 123
+    LiteralInteger => LiteralExpression::Integer(<>),
+    // 123.12
+    r"[-+]?([0-9]+)\.([0-9]+)" => LiteralExpression::Float(<>.parse::<f64>().unwrap()),
+    // 'c
+    r"'." => LiteralExpression::Char(<>.chars().skip(1).next().unwrap()),
+    // "str"
+    LiteralString => LiteralExpression::String(<>),
+    // true/false
+    LiteralBool => LiteralExpression::Bool(<>),
+    "(" ")" => LiteralExpression::Void,
+};
+
+Label: &'input str = "$" <Ident>;
+
+BlockExpressionKind: BlockExpressionKind<'input> = {
+    // { ... }
+    <code:StatementBlock> => BlockExpressionKind::Simple {<>},
+    // if true.eq(true) { ... } else { ... }
+    "if" <check:Expression> <code:StatementBlock> <otherwise:("else" <StatementBlock>)?> => BlockExpressionKind::Condition {<>},
+    // sel val { of true { ... } ... of else { ... } }
+    "sel" <of:Expression> "{" <cases:("of" <Expression> <StatementBlock>)*> <fallback:("of" "else" <StatementBlock>)?> "}" => BlockExpressionKind::Selector {<>},
+    // loop { ... }
+    "loop" <code:StatementBlock> => BlockExpressionKind::Loop {<>},
+    // while cond { ... }
+    "while" <check:Expression> <code:StatementBlock> => BlockExpressionKind::While {<>},
+    // do { ... } while { ... }
+    "do" <code:StatementBlock> "while" <check:StatementBlock> => BlockExpressionKind::DoWhile {<>},
+    // over [1, 2, 3] with var { ... }
+    "over" <what:Expression> "with" <with:Ident> <code:StatementBlock> => BlockExpressionKind::Over {<>},
+    // handle func() { !Error with err { ... } ... !else with err { ... } }
+    "handle" <of:Expression> "{" <handlers:("!" <ConcreteType> "with" <Ident> <StatementBlock>)*> <fallback:("!" "else" "with" <Ident> <StatementBlock>)?> "}" => BlockExpressionKind::Handle {<>},
+    // unhandle { foobar() }
+    "unhandle" <code:StatementBlock> => BlockExpressionKind::Unhandle {<>},
+}
+BlockExpression: BlockExpression<'input> = "#" <label:Label?> <kind:BlockExpressionKind> =>
+    BlockExpression {
+        label, kind: Box::new(kind),
+    };
+
+#[inline]
+Field: (&'input str, Expression<'input>) = <Ident> ":" <Expression>;
+ConstructExpression: ConstructExpression<'input> = {
+    // [a, b]
+    "[" <vals:Comma<Expression>> "]" => ConstructExpression::Array {<>},
+    // Type (( a: b ))
+    <what:ConcreteType> "((" <fields:Comma<Field>> "))" => ConstructExpression::Data {<>},
+};
+
+ActionExpression: ActionExpression<'input> = {
+    // bruh(foo, bar);
+    <what:Expression> "(" <args:Comma<Expression>> ")" => ActionExpression::Call {<>},
+    // num.add(thing);
+    <what:Expression> "!" <method:Ident> "(" <args:Comma<Expression>> ")" => ActionExpression::MethodCall {<>},
+    // something.field
+    <of:Expression> "." <field:Ident> => ActionExpression::Access {<>},
+    // var
+    <item:Item> => ActionExpression::Load {<>},
+};
+
+pub Expression: Expression<'input> = {
+    ActionExpression => Expression::Action(Box::new(<>)),
+    BlockExpression => Expression::Block(<>),
+    ConstructExpression => Expression::Construct(<>),
+    LiteralExpression => Expression::Literal(<>),
+}
+
+Statement: Statement<'input> = {
+    // call()
+    <expr:Expression> => Statement::Eval {<>},
+    // something = else
+    <what:Expression> "=" <to:Expression> => Statement::Assignment {<>},
+    // let var: Type = "abc";
+    "let" <what:Capture> <with:("=" <Expression>)?> => Statement::Declaration {<>},
+    // break $outside some
+    "escape" <label:Label?> <value:Expression?> => Statement::Escape {<>},
+    // continue $outside
+    "repeat" <label:Label?> => Statement::Repeat {<>},
+    // return 42
+    "return" <value:Expression?> => Statement::Return {<>},
+    // throw SomeError
+    "throw" <error:Expression> => Statement::Throw {<>},
+};
+
+pub InlineStatementBlock: StatementBlock<'input> = <code:Sep<Statement, ";">> <closed:";"?> =>
+    StatementBlock {
+        code, closed: closed.is_some()
+    };
+
+StatementBlock: StatementBlock<'input> = "{" <InlineStatementBlock> "}";
+
+#[inline]
+AsmU32: u32 = LiteralIntegerRaw => match <> {
+    ("" | "0d", dec) => u32::from_str_radix(dec, 10),
+    ("0b", bin) => u32::from_str_radix(bin, 2),
+    ("0o", oct) => u32::from_str_radix(oct, 8),
+    ("0x", hex) => u32::from_str_radix(hex, 16),
+    _ => unreachable!(),
+}.unwrap();
+
+#[inline]
+AsmId: AsmId = "#" <space:AsmU32> ":" <item:AsmU32> => AsmId {<>};
+
+#[inline]
+AsmPos: usize = LiteralIntegerRaw => match <> {
+    ("" | "0d", dec) => usize::from_str_radix(dec, 10),
+    ("0b", bin) => usize::from_str_radix(bin, 2),
+    ("0o", oct) => usize::from_str_radix(oct, 8),
+    ("0x", hex) => usize::from_str_radix(hex, 16),
+    _ => unreachable!(),
+}.unwrap();
+
+AsmOp: AsmOp<'input> = {
+    "pack" <r#type:Either<Item, (AsmId AsmPos)>> => AsmOp::Pack {<>},
+    "loaditem" <item:Either<LiteralExpression, AsmId>> => AsmOp::LoadConstItem {<>},
+    "loadfunc" <func:Either<Item, AsmId>> => AsmOp::LoadFunction {<>},
+    "loadimpl" <of:Either<Item, (AsmId AsmU32)>> => AsmOp::LoadImplementation {<>},
+    "loadsysitem" <id:Either<Ident, AsmId>> => AsmOp::LoadSystemItem {<>},
+    "access" <id:Either<Item, AsmU32>> => AsmOp::Access {<>},
+    "gettype" => AsmOp::GetType,
+    "call" => AsmOp::Call,
+    "syscall" <id:Either<Ident, AsmId>> => AsmOp::SystemCall {<>},
+    "return" => AsmOp::Return,
+    "swap" <with:AsmPos> => AsmOp::Swap {<>},
+    "pop" <count:AsmPos> <offset:AsmPos> => AsmOp::Pop {<>},
+    "jump" <check:LiteralBool?> <to:Either<Ident, AsmPos>> => AsmOp::Jump {<>},
+};
+AsmInstruction: AsmInstruction<'input> = <label:Label?> <op:AsmOp> => AsmInstruction {<>};
+AsmBlock: AsmBlock<'input> = "asm" "{" <instrs:(<AsmInstruction> ";")*> "}" => AsmBlock {<>};
+
+// |...| { ... }
+Closure: Closure<'input> = <sig:Signature> <code:Either<StatementBlock, AsmBlock>> => Closure {<>};
+
+Declaration: Declaration<'input> = {
+    // include #core::entry::Entry
+    "include" <item:Item> => Declaration::Include {<>},
+//    // module name { ... }
+//    "module" <name:Ident> <r#mod:("{" <Module> "}")?> => Declaration::Module {<>},
+    // const LENGTH: Int = 1
+    "const" <what:Capture> "=" <val:LiteralExpression> => Declaration::Const {<>},
+    // data Foo (( bar: Int ))
+    "data" <name:Ident> "((" <fields:Comma<(<Ident> ":" <Type>)>> "))" => Declaration::Data {<>},
+    // proto Add<O, R> { fnc add |...|; }
+    // proto [Add + Sub + Mul + Div + Display] Real { ... }
+    "proto" <extends:OptDefault<("[" <SepReq<Item, "+">> "]")>> <name:Ident> <generics:GenericDefs> "{" <sigs:("fnc" <Ident> <Signature> ";")*> "}" => Declaration::Protocol {<>},
+    // impl/Vector Add<Self, Self> { fnc add |...| { ... }; }
+    "impl" <r#for:("/" <ConcreteType>)?> "[" <of:ConcreteType> "]" "{" <fncs:("fnc" <Ident> <Closure> ";")*> "}" => Declaration::Implementation {<>},
+    // fnc/Vector [Zero] zero |...| { ... }
+    "fnc" <of:("/" <ConcreteType>)?> <r#impl:("[" <ConcreteType> "]")?> <name:Ident> <closure:Closure> => Declaration::Function {<>},
+};
+
+pub Module: Module<'input> = <decls:(<Declaration> ";")*> => Module {<>};

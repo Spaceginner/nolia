@@ -1,0 +1,23 @@
+proto Add
+    <> A, S
+{
+    fnc add |a: Self, b: O| -> R;
+};
+
+proto Sub
+    <> M, D
+{
+    fnc sub |sub: Self, min: M| -> D;
+};
+
+proto Mul
+    <> M, P
+{
+    fnc mul |a: Self, b: M| -> P;
+};
+
+proto Div
+    <> D, Q
+{
+    fnc div |did: Self, dir: D| -> Q;
+};

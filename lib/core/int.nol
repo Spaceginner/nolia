@@ -1,0 +1,53 @@
+use #::Add;
+use #::Sub;
+use #::Mul;
+use #::Div;
+
+proto Int {};
+
+impl/%i16 Int {};
+impl/%i32 Int {};
+impl/%i64 Int {};
+impl/%i128 Int {};
+impl/%i256 Int {};
+impl/%u16 Int {};
+impl/%u32 Int {};
+impl/%u64 Int {};
+impl/%u128 Int {};
+impl/%u256 Int {};
+
+impl/@Int Add <Self, Self> {
+    fnc add |a: Self, b: Self| -> Self
+    asm {
+        syscall add;
+        pop 2 1;
+        return;
+    };
+};
+
+impl/@Int Sub <Self, Self> {
+    fnc sub |min: Self, sub: Self| -> Self
+    asm {
+        syscall sub;
+        pop 2 1;
+        return;
+    };
+};
+
+impl/@Int Mul <Self, Self> {
+    fnc mul |a: Self, b: Self| -> Self
+    asm {
+        syscall mul;
+        pop 2 1;
+        return;
+    };
+};
+
+impl/@Int Div <Self, Self> {
+    fnc div |did: Self, dir: Self| -> Self
+    asm {
+        syscall div;
+        pop 2 1;
+        return;
+    };
+}

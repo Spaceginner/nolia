@@ -1,0 +1,7 @@
+use ::
+
+proto Entry
+    <> E: @Error
+{
+    fnc 
+}

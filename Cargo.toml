@@ -1,0 +1,15 @@
+[package]
+name = "nolia"
+version = "0.1.0"
+edition = "2021"
+
+
+[build-dependencies]
+lalrpop = "0.22.1"
+
+[dependencies]
+lalrpop-util = { version = "0.22.1", features = ["unicode", "lexer"] }
+either = "1.14.0"
+
+[profile.release]
+lto = "thin"
