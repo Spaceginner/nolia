@@ -16,7 +16,12 @@ asm {
 
 fnc entry || {
     println("Hello, Nolia!");
-}
+    
+    #if 5!eq(3)!not() {
+        println("succeeded block test");
+        repeat;
+    };
+};
 "#
     ).unwrap();
     println!("{parsed:#?}");
@@ -30,10 +35,12 @@ fnc entry || {
             mods: vec![(path!(), parsed)],
         }
     );
+    
+    println!("{compiler:#?}");
 
     let (crates, entry_func) = compiler.compile(Some(path!(example @ entry))).unwrap();
 
-    println!("{crates:#?}");
+    // println!("{crates:#?}");  // todo make actually readable IR display impl
     
     let mut vm = vm::Vm::default();
 

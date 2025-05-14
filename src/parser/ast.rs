@@ -102,7 +102,7 @@ pub enum BlockExpressionKind<'s> {
     },
     Handle {
         of: Expression<'s>,
-        handlers: Vec<(ConcreteType<'s>, &'s str, StatementBlock<'s>)>,
+        handlers: Vec<(Item<'s>, &'s str, StatementBlock<'s>)>,
         fallback: Option<(&'s str, StatementBlock<'s>)>
     },
     Unhandle {
@@ -113,10 +113,7 @@ pub enum BlockExpressionKind<'s> {
     While {
         code: StatementBlock<'s>,
         check: Expression<'s>,
-    },
-    DoWhile {
-        code: StatementBlock<'s>,
-        check: StatementBlock<'s>,
+        do_first: bool,
     },
     Over {
         code: StatementBlock<'s>,
@@ -151,7 +148,7 @@ pub enum LiteralExpression {
 pub enum ConstructExpression<'s> {
     Array { vals: Vec<Expression<'s>> },
     Data {
-        what: ConcreteType<'s>,
+        what: Item<'s>,
         fields: Vec<(&'s str, Expression<'s>)>,
     }
 }
@@ -183,6 +180,19 @@ pub enum Expression<'s> {
     Construct(ConstructExpression<'s>),
     Literal(LiteralExpression),
 }
+
+
+impl<'s> From<StatementBlock<'s>> for Expression<'s> {
+    fn from(stmt_b: StatementBlock<'s>) -> Self {
+        Self::Block(BlockExpression {
+            label: None,
+            kind: Box::new(BlockExpressionKind::Simple {
+                code: stmt_b 
+            })
+        })
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub enum Statement<'s> {

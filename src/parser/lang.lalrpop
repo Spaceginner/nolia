@@ -239,13 +239,13 @@ BlockExpressionKind: BlockExpressionKind<'input> = {
     // loop { ... }
     "loop" <code:StatementBlock> => BlockExpressionKind::Loop {<>},
     // while cond { ... }
-    "while" <check:Expression> <code:StatementBlock> => BlockExpressionKind::While {<>},
+    "while" <check:Expression> <code:StatementBlock> => BlockExpressionKind::While { <>, do_first: false },
     // do { ... } while { ... }
-    "do" <code:StatementBlock> "while" <check:StatementBlock> => BlockExpressionKind::DoWhile {<>},
+    "do" <code:StatementBlock> "while" <check:StatementBlock> => BlockExpressionKind::While { code, check: check.into(), do_first: true },
     // over [1, 2, 3] with var { ... }
     "over" <what:Expression> "with" <with:Ident> <code:StatementBlock> => BlockExpressionKind::Over {<>},
     // handle func() { !Error with err { ... } ... !else with err { ... } }
-    "handle" <of:Expression> "{" <handlers:("!" <ConcreteType> "with" <Ident> <StatementBlock>)*> <fallback:("!" "else" "with" <Ident> <StatementBlock>)?> "}" => BlockExpressionKind::Handle {<>},
+    "handle" <of:Expression> "{" <handlers:("!" <Item> "with" <Ident> <StatementBlock>)*> <fallback:("!" "else" "with" <Ident> <StatementBlock>)?> "}" => BlockExpressionKind::Handle {<>},
     // unhandle { foobar() }
     "unhandle" <code:StatementBlock> => BlockExpressionKind::Unhandle {<>},
 }
@@ -260,7 +260,7 @@ ConstructExpression: ConstructExpression<'input> = {
     // [a, b]
     "[" <vals:Comma<Expression>> "]" => ConstructExpression::Array {<>},
     // Type (( a: b ))
-    <what:ConcreteType> "((" <fields:Comma<Field>> "))" => ConstructExpression::Data {<>},
+    <what:Item> "((" <fields:Comma<Field>> "))" => ConstructExpression::Data {<>},
 };
 
 ActionExpression: ActionExpression<'input> = {

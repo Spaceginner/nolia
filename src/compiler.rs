@@ -182,9 +182,7 @@ enum SBlockTag {
     Loop,
     While {
         check: SBlock,
-    },
-    DoWhile {
-        check: SBlock,
+        do_first: bool,
     },
     Over {
         what: SBlock,
@@ -195,7 +193,8 @@ enum SBlockTag {
 #[derive(Debug, Clone)]
 struct Declaration {
     name: Box<str>,
-    r#type: Type,
+    r#type: TypeRef,
+    default: Option<SBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -522,7 +521,206 @@ impl Compiler {
                         };
 
                         let code = match closure.code {
-                            Either::Left(stmt) => todo!("statements arent supported"),
+                            Either::Left(stmt_b) =>
+                                Block::Structured({
+                                    fn transform_stmt_b<'s>(
+                                        stmt_b: ast::StatementBlock<'s>,
+                                        tt: &impl Fn(ast::Type<'s>) -> TypeRef,
+                                        timi: &impl Fn(ast::Item<'s>) -> Either<IntermediatePath, Path>,
+                                        ti: &impl Fn(ast::Item<'s>) -> Path,
+                                    ) -> SBlock {
+                                        let mut decls = Vec::new();
+                                        let code = stmt_b.code.into_iter()
+                                            .filter_map(|stmt| {
+                                                Some(match stmt {
+                                                    ast::Statement::Declaration { what, with } => {
+                                                        decls.push(Declaration {
+                                                            name: what.name.into(),
+                                                            r#type: tt(what.r#type),
+                                                            default: with.map(|e| transform_expr(e, tt, timi, ti)),
+                                                        });
+                                                        None?
+                                                    },
+                                                    ast::Statement::Eval { expr } =>
+                                                        Instruction::DoBlock(transform_expr(expr, tt, timi, ti)),
+                                                    ast::Statement::Assignment { what, to } =>
+                                                        Instruction::DoStatement(StatementInstruction::Assignment {
+                                                            what: transform_expr(what, tt, timi, ti),
+                                                            to: transform_expr(to, tt, timi, ti),
+                                                        }),
+                                                    ast::Statement::Escape { value, label } =>
+                                                        Instruction::DoStatement(StatementInstruction::Escape {
+                                                            value: value.map(|e| transform_expr(e, tt, timi, ti)),
+                                                            label: label.map(|s| s.into()),
+                                                        }),
+                                                    ast::Statement::Repeat { label } =>
+                                                        Instruction::DoStatement(StatementInstruction::Repeat {
+                                                            label: label.map(|s| s.into()),
+                                                        }),
+                                                    ast::Statement::Return { value } =>
+                                                        Instruction::DoStatement(StatementInstruction::Return {
+                                                            value: value.map(|e| transform_expr(e, tt, timi, ti)),
+                                                        }),
+                                                    ast::Statement::Throw { error } =>
+                                                        Instruction::DoStatement(StatementInstruction::Throw {
+                                                            error: transform_expr(error, tt, timi, ti)
+                                                        }),
+                                                })
+                                            }).collect();
+
+                                        SBlock {
+                                            label: None,
+                                            tag: Box::new(SBlockTag::Simple),
+                                            closed: stmt_b.closed,
+                                            decls, code
+                                        }
+                                    }
+
+                                    fn transform_expr<'s>(
+                                        expr: ast::Expression<'s>,
+                                        tt: &impl Fn(ast::Type<'s>) -> TypeRef,
+                                        timi: &impl Fn(ast::Item<'s>) -> Either<IntermediatePath, Path>,
+                                        ti: &impl Fn(ast::Item<'s>) -> Path,
+                                    ) -> SBlock {
+                                        match expr {
+                                            ast::Expression::Action(act_e) =>
+                                                SBlock {
+                                                    tag: Box::new(SBlockTag::Simple),
+                                                    label: None,
+                                                    closed: false,
+                                                    decls: vec![],
+                                                    code: vec![Instruction::DoAction(match *act_e {
+                                                        ast::ActionExpression::Call { what, args } =>
+                                                            ActionInstruction::Call {
+                                                                what: transform_expr(what, tt, timi, ti),
+                                                                args: args.into_iter().map(|e| transform_expr(e, tt, timi, ti)).collect(),
+                                                            },
+                                                        ast::ActionExpression::MethodCall { what, method, args } =>
+                                                              ActionInstruction::MethodCall {
+                                                                  what: transform_expr(what, tt, timi, ti),
+                                                                  method: method.into(),
+                                                                  args: args.into_iter().map(|e| transform_expr(e, tt, timi, ti)).collect()
+                                                              },
+                                                        ast::ActionExpression::Access { of, field } =>
+                                                            ActionInstruction::Access {
+                                                                of: transform_expr(of, tt, timi, ti),
+                                                                field: field.into(),
+                                                            },
+                                                        ast::ActionExpression::Load { item } => 
+                                                            ActionInstruction::Load {
+                                                                item: timi(item),
+                                                            },
+                                                    })],
+                                                },
+                                            ast::Expression::Block(block_e) => {
+                                                let (tag, inblock) = match *block_e.kind {
+                                                    ast::BlockExpressionKind::Simple { code } =>
+                                                        (
+                                                            SBlockTag::Simple,
+                                                            transform_stmt_b(code, tt, timi, ti)
+                                                        ),
+                                                    ast::BlockExpressionKind::Condition { code, check, otherwise } =>
+                                                        (
+                                                            SBlockTag::Condition {
+                                                                check: transform_expr(check, tt, timi, ti),
+                                                                otherwise: otherwise.map(|sb| transform_stmt_b(sb, tt, timi, ti)),
+                                                            },
+                                                            transform_stmt_b(code, tt, timi, ti),
+                                                        ),
+                                                    ast::BlockExpressionKind::Selector { of, fallback, cases } =>
+                                                        (
+                                                            SBlockTag::Selector {
+                                                                cases: cases.into_iter()
+                                                                    .map(|(e, sb)| (transform_expr(e, tt, timi, ti), transform_stmt_b(sb, tt, timi, ti)))
+                                                                    .collect(),
+                                                                fallback: fallback.map(|sb| transform_stmt_b(sb, tt, timi, ti)),
+                                                            },
+                                                            transform_expr(of, tt, timi, ti),
+                                                        ),
+                                                    ast::BlockExpressionKind::Handle { of, handlers, fallback } =>
+                                                        (
+                                                            SBlockTag::Handle {
+                                                                handlers: handlers.into_iter()
+                                                                    .map(|(r#type, name, sb)| 
+                                                                        (ti(r#type).into(), name.into(), transform_stmt_b(sb, tt, timi, ti)))
+                                                                    .collect(),
+                                                                fallback: fallback.map(|(s, sb)| (s.into(), transform_stmt_b(sb, tt, timi, ti)))
+                                                            },
+                                                            transform_expr(of, tt, timi, ti),
+                                                        ),
+                                                    ast::BlockExpressionKind::Unhandle { code } =>
+                                                        (
+                                                            SBlockTag::Unhandle,
+                                                            transform_stmt_b(code, tt, timi, ti),
+                                                        ),
+                                                    ast::BlockExpressionKind::Loop { code } =>
+                                                        (
+                                                            SBlockTag::Loop,
+                                                            transform_stmt_b(code, tt, timi, ti),
+                                                        ),
+                                                    ast::BlockExpressionKind::While { check, code, do_first } =>
+                                                        (
+                                                            SBlockTag::While {
+                                                                check: transform_expr(check, tt, timi, ti),
+                                                                do_first,
+                                                            },
+                                                            transform_stmt_b(code, tt, timi, ti),
+                                                        ),
+                                                    ast::BlockExpressionKind::Over { code, what, with } =>
+                                                        (
+                                                            SBlockTag::Over {
+                                                                what: transform_expr(what, tt, timi, ti),
+                                                                with: with.into(),
+                                                            },
+                                                            transform_stmt_b(code, tt, timi, ti),
+                                                        ),
+                                                };
+
+                                                SBlock {
+                                                    label: block_e.label.map(|s| s.into()),
+                                                    tag: Box::new(tag),
+                                                    code: inblock.code,
+                                                    decls: inblock.decls,
+                                                    closed: inblock.closed,
+                                                }
+                                            },
+                                            ast::Expression::Construct(cnstr_e) =>
+                                                SBlock {
+                                                    label: None,
+                                                    tag: Box::new(SBlockTag::Simple),
+                                                    closed: false,
+                                                    decls: vec![],
+                                                    code: vec![Instruction::Construct(
+                                                        match cnstr_e {
+                                                            ast::ConstructExpression::Array { vals } =>
+                                                                ConstructInstruction::Array {
+                                                                    vals: vals.into_iter()
+                                                                        .map(|e| transform_expr(e, tt, timi, ti))
+                                                                        .collect()
+                                                                },
+                                                            ast::ConstructExpression::Data { what, fields } =>
+                                                                ConstructInstruction::Data {
+                                                                    what: ti(what).into(),
+                                                                    fields: fields.into_iter()
+                                                                        .map(|(n, e)| (n.into(), transform_expr(e, tt, timi, ti)))
+                                                                        .collect(),
+                                                                },
+                                                        },
+                                                    )],
+                                                },
+                                            ast::Expression::Literal(lit_e) =>
+                                                SBlock {
+                                                    label: None,
+                                                    tag: Box::new(SBlockTag::Simple),
+                                                    closed: false,
+                                                    decls: vec![],
+                                                    code: vec![Instruction::LoadLiteral(lit_e.into())],
+                                                },
+                                        }
+                                    }
+
+                                    transform_stmt_b(stmt_b, &transform_type, &transform_im_item, &transform_item)
+                                }),
                             Either::Right(asm) => {
                                 Block::Asm(AsmBlock {
                                     code: asm.instrs.into_iter().map(
@@ -641,7 +839,7 @@ impl Compiler {
                                     instr: Instruction,
                                     block_starts_at: usize,
                                     this_instr_at: usize,
-                                    var_scope: &mut Vec<HashMap<&str, usize>>,
+                                    var_scope: &mut (HashMap<Box<str>, (usize, TypeRef)>, usize),
                                     label_scope: &mut HashMap<&str, usize>,
                                     func_map: &HashMap<Path, (usize, FunctionType)>,
                                     item_map: &mut HashMap<Path, usize>,
@@ -662,41 +860,80 @@ impl Compiler {
                                         Instruction::DoStatement(StatementInstruction::Throw { error }) => todo!(),
                                     }
                                 }
-                                
+
                                 fn compile_s_block(
-                                    s_block: SBlock,
+                                    mut s_block: SBlock,
                                     starts_at: usize,
-                                    var_scope: &mut Vec<HashMap<&str, usize>>,
+                                    var_scope: &mut (HashMap<Box<str>, (usize, TypeRef)>, usize),
                                     label_scope: &mut HashMap<&str, usize>,
                                     func_map: &HashMap<Path, (usize, FunctionType)>,
                                     item_map: &mut HashMap<Path, usize>,
                                 ) -> Vec<vm::Op> {
-                                    let mut code = match *s_block.tag {
-                                        SBlockTag::Simple => 
+                                    let mut code_offset = 0;
+                                    let init_code = s_block.decls.iter_mut()
+                                        .map(|Declaration { name, default, r#type }| {
+                                            if var_scope.0.contains_key(&name[..]) {
+                                                panic!("variable shadowing is forbidden");
+                                            };
+
+                                            var_scope.0.insert(name.clone(), (var_scope.1+1, r#type.clone()));
+                                            var_scope.1 += 1;
+
+                                            if let Some(val) = default.take() {
+                                                let def_code = compile_s_block(val, code_offset, var_scope, label_scope, func_map, item_map);
+                                                code_offset += def_code.len();
+                                                def_code
+                                            } else {
+                                                code_offset += 1;
+                                                vec![vm::Op::LoadSystemItem { id: 2.into() }]  // fixme soft code this
+                                            }
+                                        })
+                                        .reduce(|mut a, mut b| { a.append(&mut b); a })
+                                        .unwrap_or_else(|| vec![]);
+
+                                    let code = match *s_block.tag {
+                                        SBlockTag::Simple =>
                                             s_block.code.into_iter().enumerate()
                                                 .map(|(i, instr)| compile_instruction(instr, starts_at, starts_at + i, var_scope, label_scope, func_map, item_map))
                                                 .reduce(|mut a, mut b| { a.append(&mut b); a })
                                                 .unwrap_or_else(|| vec![]),
-                                        SBlockTag::Condition { .. } => todo!(), 
+                                        SBlockTag::Condition { .. } => todo!(),
                                         SBlockTag::Selector { .. } => todo!(),
                                         SBlockTag::Handle { .. } => todo!(),
                                         SBlockTag::Unhandle => todo!(),
                                         SBlockTag::Loop => todo!(),
                                         SBlockTag::While { .. } => todo!(),
-                                        SBlockTag::DoWhile { .. } => todo!(),
                                         SBlockTag::Over { .. } => todo!(),
                                     };
-                                    
+
                                     // fixme handle blocks with nothing
                                     eprintln!("FIXME WARNING - HANDLE BLOCKS WITH NOTHING");
-                                    
-                                    code
+
+                                    let deinit_code = s_block.decls.iter()
+                                        .map(|Declaration { name, .. }| {
+                                            let cur_i = var_scope.0[&name[..]].0;
+                                            let cur_top = var_scope.0.iter()
+                                                .find_map(
+                                                    |(name, &(pos, _))|
+                                                    (pos == var_scope.1).then_some(name.clone())
+                                                ).unwrap();
+
+                                            let pop_at = var_scope.1 - cur_i;
+                                            var_scope.0.get_mut(&cur_top).unwrap().0 = cur_i;
+                                            var_scope.0.remove(&name[..]);
+                                            var_scope.1 -= 1;
+
+                                            vm::Op::Pop { count: 1, offset: pop_at }
+                                        })
+                                        .collect();
+
+                                    [init_code, code, deinit_code].concat()
                                 }
 
                                 compile_s_block(
                                     s_block,
                                     0,
-                                    &mut Vec::new(),
+                                    &mut (HashMap::new(), 0),
                                     &mut HashMap::new(),
                                     &func_map,
                                     &mut item_map,
