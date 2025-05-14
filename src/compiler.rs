@@ -842,22 +842,25 @@ impl Compiler {
                                     var_scope: &mut (HashMap<Box<str>, (usize, TypeRef)>, usize),
                                     label_scope: &mut HashMap<&str, usize>,
                                     func_map: &HashMap<Path, (usize, FunctionType)>,
-                                    item_map: &mut HashMap<Path, usize>,
+                                    item_map: &HashMap<Path, usize>,
+                                    add_item: &mut impl FnMut(LiteralValue) -> usize,
                                 ) -> Vec<vm::Op> {
                                     match instr {
-                                        Instruction::DoBlock(block) => todo!(),
-                                        Instruction::LoadLiteral(lit) => todo!(),
-                                        Instruction::DoAction(ActionInstruction::Access { of, field }) => todo!(),
+                                        Instruction::DoBlock(block) =>
+                                            compile_s_block(block, this_instr_at, var_scope, label_scope, func_map, item_map, add_item),
+                                        Instruction::LoadLiteral(lit) =>
+                                            vec![vm::Op::LoadConstItem { id: add_item(lit).into() }],
+                                        Instruction::DoAction(ActionInstruction::Access { of, field }) => todo!("fields access not supported"),
                                         Instruction::DoAction(ActionInstruction::Call { what, args }) => todo!(),
-                                        Instruction::DoAction(ActionInstruction::MethodCall { what, method, args }) => todo!(),
+                                        Instruction::DoAction(ActionInstruction::MethodCall { what, method, args }) => todo!("methods are not supported"),
                                         Instruction::DoAction(ActionInstruction::Load { item }) => todo!(),
-                                        Instruction::Construct(ConstructInstruction::Data { what, fields }) => todo!(),
-                                        Instruction::Construct(ConstructInstruction::Array { vals }) => todo!(),
+                                        Instruction::Construct(ConstructInstruction::Data { what, fields }) => todo!("datas are not supported"),
+                                        Instruction::Construct(ConstructInstruction::Array { vals }) => todo!("arrays are not supported"),
                                         Instruction::DoStatement(StatementInstruction::Assignment { what, to }) => todo!(),
                                         Instruction::DoStatement(StatementInstruction::Repeat { label }) => todo!(),
                                         Instruction::DoStatement(StatementInstruction::Escape { label, value }) => todo!(),
                                         Instruction::DoStatement(StatementInstruction::Return { value }) => todo!(),
-                                        Instruction::DoStatement(StatementInstruction::Throw { error }) => todo!(),
+                                        Instruction::DoStatement(StatementInstruction::Throw { error }) => todo!("exceptions are not supported"),
                                     }
                                 }
 
@@ -867,7 +870,8 @@ impl Compiler {
                                     var_scope: &mut (HashMap<Box<str>, (usize, TypeRef)>, usize),
                                     label_scope: &mut HashMap<&str, usize>,
                                     func_map: &HashMap<Path, (usize, FunctionType)>,
-                                    item_map: &mut HashMap<Path, usize>,
+                                    item_map: &HashMap<Path, usize>,
+                                    add_item: &mut impl FnMut(LiteralValue) -> usize,
                                 ) -> Vec<vm::Op> {
                                     let mut code_offset = 0;
                                     let init_code = s_block.decls.iter_mut()
@@ -880,7 +884,7 @@ impl Compiler {
                                             var_scope.1 += 1;
 
                                             if let Some(val) = default.take() {
-                                                let def_code = compile_s_block(val, code_offset, var_scope, label_scope, func_map, item_map);
+                                                let def_code = compile_s_block(val, code_offset, var_scope, label_scope, func_map, item_map, add_item);
                                                 code_offset += def_code.len();
                                                 def_code
                                             } else {
@@ -894,7 +898,7 @@ impl Compiler {
                                     let code = match *s_block.tag {
                                         SBlockTag::Simple =>
                                             s_block.code.into_iter().enumerate()
-                                                .map(|(i, instr)| compile_instruction(instr, starts_at, starts_at + i, var_scope, label_scope, func_map, item_map))
+                                                .map(|(i, instr)| compile_instruction(instr, starts_at, starts_at + i, var_scope, label_scope, func_map, item_map, add_item))
                                                 .reduce(|mut a, mut b| { a.append(&mut b); a })
                                                 .unwrap_or_else(|| vec![]),
                                         SBlockTag::Condition { .. } => todo!(),
