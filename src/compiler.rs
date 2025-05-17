@@ -156,7 +156,7 @@ impl TypeRef {
             Self::Data(data) => matches!(bounds, Self::Data(other) if data == other),
             Self::Primitive(lit) => matches!(bounds, Self::Primitive(other) if lit == other),
             Self::Array(None) => true,
-            Self::Array(Some(item)) => matches!(bounds, Self::Array(other) if item.within(&*other.as_ref().expect("FIXME needs considiration"))),  // fixme
+            Self::Array(Some(item)) => matches!(bounds, Self::Array(other) if item.within(&*other.as_ref().expect("XXX needs considiration"))),  // xxx
             Self::Function(_) => false,  // fixme
             Self::Nothing => matches!(bounds, Self::Nothing),
             Self::Never => true,
