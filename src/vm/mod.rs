@@ -49,10 +49,12 @@ pub struct CrateDeclaration {
 
 #[derive(Debug, Clone)]
 pub enum Integer {
+    I8(i8),
     I16(i16),
     I32(i32),
     I64(i64),
     I128(i128),
+    U8(u8),
     U16(u16),
     U32(u32),
     U64(u64),
@@ -87,10 +89,12 @@ pub enum SystemObj {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimitiveIntType {
+    I8,
     I16,
     I32,
     I64,
     I128,
+    U8,
     U16,
     U32,
     U64,
@@ -134,10 +138,12 @@ impl Object {
             Object::Fundamental(ConstItem::String(..)) => ObjType::Primitive(PrimitiveObjType::String),
             Object::Fundamental(ConstItem::Char(..)) => ObjType::Primitive(PrimitiveObjType::Char),
             Object::Fundamental(ConstItem::Float(..)) => ObjType::Primitive(PrimitiveObjType::Float),
+            Object::Fundamental(ConstItem::Integer(Integer::I8(..))) => ObjType::Primitive(PrimitiveObjType::Integer(PrimitiveIntType::I8)),
             Object::Fundamental(ConstItem::Integer(Integer::I16(..))) => ObjType::Primitive(PrimitiveObjType::Integer(PrimitiveIntType::I16)),
             Object::Fundamental(ConstItem::Integer(Integer::I32(..))) => ObjType::Primitive(PrimitiveObjType::Integer(PrimitiveIntType::I32)),
             Object::Fundamental(ConstItem::Integer(Integer::I64(..))) => ObjType::Primitive(PrimitiveObjType::Integer(PrimitiveIntType::I64)),
             Object::Fundamental(ConstItem::Integer(Integer::I128(..))) => ObjType::Primitive(PrimitiveObjType::Integer(PrimitiveIntType::I128)),
+            Object::Fundamental(ConstItem::Integer(Integer::U8(..))) => ObjType::Primitive(PrimitiveObjType::Integer(PrimitiveIntType::U8)),
             Object::Fundamental(ConstItem::Integer(Integer::U16(..))) => ObjType::Primitive(PrimitiveObjType::Integer(PrimitiveIntType::U16)),
             Object::Fundamental(ConstItem::Integer(Integer::U32(..))) => ObjType::Primitive(PrimitiveObjType::Integer(PrimitiveIntType::U32)),
             Object::Fundamental(ConstItem::Integer(Integer::U64(..))) => ObjType::Primitive(PrimitiveObjType::Integer(PrimitiveIntType::U64)),
@@ -287,6 +293,14 @@ impl Memory {
         };
         cell
     }
+    
+    fn take_cell(&mut self, optr: OPtr) -> ObjectCell {
+        let cell = self.cells[optr.index].take().expect("it should be not none");
+        if cell.id != optr.id {
+            panic!("invalid id; hanging ref");
+        };
+        cell
+    }
 
     pub fn reg_ref(&mut self, optr: OPtr) {
         let cell = self.get_cell_mut(optr);
@@ -298,15 +312,12 @@ impl Memory {
         if let Some(dec) = cell.refcount.checked_sub(1) {
             cell.refcount = dec;
         } else {
-            match &cell.object {
-                Object::Constructed { fields, .. } => {
-                    for field in fields.clone() {  // fixme resolve this clone
-                        self.dereg_ref(field);
-                    };
-                },
-                _ => {},
+            let cell = self.take_cell(optr);
+            if let Object::Constructed { fields, .. } = &cell.object {
+                for &field in fields.iter() {
+                    self.dereg_ref(field);
+                };
             };
-            self.cells[optr.index] = None;
         }
     }
 }
