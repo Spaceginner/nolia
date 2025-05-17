@@ -1166,44 +1166,51 @@ impl Compiler {
                                             if let Some(otherwise) = otherwise_code {
                                                 [
                                                     check_code,
-                                                    vec![vm::Op::Jump {
-                                                        to: main_pos,
-                                                        check: Some(true),
-                                                    }],
-                                                    vec![vm::Op::Jump {
-                                                        to: after_main_pos + 1,
-                                                        check: None,
-                                                    }],
-                                                    vec![vm::Op::Pop {
-                                                        count: 1,
-                                                        offset: 0,
-                                                    }],
+                                                    vec![
+                                                        vm::Op::Jump {
+                                                            to: main_pos,
+                                                            check: Some(true),
+                                                        },
+                                                        vm::Op::Jump {
+                                                            to: after_main_pos + 1,
+                                                            check: None,
+                                                        },
+                                                        vm::Op::Pop {
+                                                            count: 1,
+                                                            offset: 0,
+                                                        }
+                                                    ],
                                                     main_code,
-                                                    vec![vm::Op::Jump {
-                                                        to: after_otherwise_pos,
-                                                        check: None,
-                                                    }],
-                                                    vec![vm::Op::Pop {
-                                                        count: 1,
-                                                        offset: 0,
-                                                    }],
+                                                    vec![
+                                                        vm::Op::Jump {
+                                                            to: after_otherwise_pos,
+                                                            check: None,
+                                                        },
+                                                        vm::Op::Pop {
+                                                            count: 1,
+                                                            offset: 0,
+                                                        }
+                                                    ],
                                                     otherwise,
                                                 ].concat()
                                             } else {
                                                 [
                                                     check_code,
-                                                    vec![vm::Op::Jump {
-                                                        to: main_pos,
-                                                        check: Some(true),
-                                                    }],
-                                                    vec![vm::Op::Jump {
-                                                        to: after_main_pos,
-                                                        check: None,
-                                                    }],
-                                                    vec![vm::Op::Pop {
-                                                        count: 1,
-                                                        offset: 0,
-                                                    }],
+                                                    vec![
+                                                        // xxx introduce a jump-else kind of instr
+                                                        vm::Op::Jump {
+                                                            to: main_pos,
+                                                            check: Some(true),
+                                                        },
+                                                        vm::Op::Jump {
+                                                            to: after_main_pos,
+                                                            check: None,
+                                                        },
+                                                        vm::Op::Pop {
+                                                            count: 1,
+                                                            offset: 0,
+                                                        }
+                                                    ],
                                                     main_code,
                                                 ].concat()
                                             }
