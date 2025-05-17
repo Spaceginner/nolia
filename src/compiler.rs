@@ -1218,8 +1218,89 @@ impl Compiler {
                                         SBlockTag::Selector { .. } => todo!(),
                                         SBlockTag::Handle { .. } => todo!(),
                                         SBlockTag::Unhandle { .. } => todo!(),
-                                        SBlockTag::Loop { .. } => todo!(),
-                                        SBlockTag::While { .. } => todo!(),
+                                        SBlockTag::Loop { code } => {
+                                            if !resolve_type(&code, func_map, var_scope, item_map, false).within(&TypeRef::Nothing) {
+                                                panic!("code mustn't return anything (only through escaping)");
+                                            };
+
+                                            [
+                                                compile_s_block(code, starts_at, var_scope, label_scope, func_map, item_map, items),
+                                                vec![vm::Op::Jump {
+                                                    to: starts_at,
+                                                    check: None
+                                                }],
+                                            ].concat()
+                                        },
+                                        // todo merge with simple loop
+                                        SBlockTag::While { code, check, do_first } => {
+                                            if !resolve_type(&code, func_map, var_scope, item_map, false).within(&TypeRef::Nothing) {
+                                                panic!("code mustn't return anything");
+                                            };
+
+                                            if !resolve_type(&check, func_map, var_scope, item_map, false).within(&TypeRef::Primitive(PrimitiveType::Bool)) {
+                                                panic!("check is not bool");
+                                            };
+
+                                            if do_first {
+                                                let main_pos = starts_at + 2;
+                                                let main_code = compile_s_block(code, starts_at, var_scope, label_scope, func_map, item_map, items);
+                                                let check_pos = main_pos + main_code.len();
+                                                let check_code = compile_s_block(check, check_pos, var_scope, label_scope, func_map, item_map, items);
+
+                                                [
+                                                    vec![
+                                                        vm::Op::Jump {
+                                                            to: main_pos,
+                                                            check: None,
+                                                        },
+                                                        vm::Op::Pop {
+                                                            count: 1,
+                                                            offset: 0,
+                                                        },
+                                                    ],
+                                                    main_code,
+                                                    check_code,
+                                                    vec![
+                                                        vm::Op::Jump {
+                                                            to: main_pos - 1,
+                                                            check: Some(true),
+                                                        },
+                                                        vm::Op::Pop {
+                                                            count: 1,
+                                                            offset: 0,
+                                                        },
+                                                    ],
+                                                ].concat()
+                                            } else {
+                                                let check_code = compile_s_block(check, starts_at, var_scope, label_scope, func_map, item_map, items);
+                                                let main_pos = starts_at + check_code.len() + 2;
+                                                let main_code = compile_s_block(code, main_pos, var_scope, label_scope, func_map, item_map, items);
+                                                let loop_end_pos = main_pos + main_code.len() + 2;
+
+                                                [
+                                                    check_code,
+                                                    vec![
+                                                        vm::Op::Jump {
+                                                            to: main_pos,
+                                                            check: Some(true),
+                                                        },
+                                                        vm::Op::Jump {
+                                                            to: loop_end_pos,
+                                                            check: None,
+                                                        },
+                                                        vm::Op::Pop {
+                                                            count: 1,
+                                                            offset: 0,
+                                                        }
+                                                    ],
+                                                    main_code,
+                                                    vec![vm::Op::Jump {
+                                                        to: starts_at,
+                                                        check: None,
+                                                    }],
+                                                ].concat()
+                                            }
+                                        },
                                         SBlockTag::Over { .. } => todo!(),
                                     }
                                 }
