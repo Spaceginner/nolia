@@ -59,7 +59,7 @@ Item: Item<'input> = <root:ItemRoot?> <path:SepReq<Ident, "::">> => Item {<>};
 
 Generics: Vec<Type<'input>> = "<" <Comma<Type>> ">";
 
-ConcreteType: ConcreteType<'input> = <item:Item> <generics:OptDefault<Generics>> => ConcreteType {<>};
+ProtocolType: ProtocolType<'input> = <base:Item> <generics:OptDefault<Generics>> => ProtocolType {<>};
 
 IntegerTypeSize: IntegerTypeSize = r"\d[\d_]*" => match <> {
     "8" => IntegerTypeSize::Byte,
@@ -81,11 +81,11 @@ PrimitiveType: PrimitiveType = {
 
 Type: Type<'input> = {
     // @[Foo + Bar]
-    "@" "[" <SepReq<ConcreteType, "+">> "]" => Type::Op(<>),
+    "@" "[" <SepReq<ProtocolType, "+">> "]" => Type::Op(<>),
     // @Type
-    "@" <ConcreteType> => Type::Op(vec![<>]),
+    "@" <ProtocolType> => Type::Op(vec![<>]),
     // JustType
-    ConcreteType => Type::Concrete(<>),
+    Item => Type::Data(<>),
     // %i16
     "%" <PrimitiveType> => Type::Primitive(<>),
     // !
@@ -102,7 +102,7 @@ Capture: Capture<'input> = <name:Ident> ":" <r#type:Type> => Capture {<>};
 GenericDef: GenericDef<'input> = <name:Ident> <constraint:(":" <Type>)?> => GenericDef {<>};
 GenericDefs: GenericDefs<'input> = <defs:OptDefault<("<>" <Sep<GenericDef, ",">>)>> => GenericDefs {<>};
 #[inline]
-Errors: Vec<ConcreteType<'input>> = OptDefault<("!" <Comma<ConcreteType>>)>;
+Errors: Vec<Item<'input>> = OptDefault<("!" <Comma<Item>>)>;
 Signature: Signature<'input> = "|" <captures:Comma<Capture>> "|" <r#return:("->" <Type>)?> <generics:GenericDefs> <errors:Errors> => Signature {<>};
 
 #[inline]
@@ -334,10 +334,11 @@ AsmOp: AsmOp<'input> = {
     "loadsysitem" <id:Either<Ident, AsmId>> => AsmOp::LoadSystemItem {<>},
     "access" <id:Either<Item, AsmU32>> => AsmOp::Access {<>},
     "gettype" => AsmOp::GetType,
-    "call" => AsmOp::Call,
+    "call" <which:AsmPos> => AsmOp::Call {<>},
     "syscall" <id:Either<Ident, AsmId>> => AsmOp::SystemCall {<>},
     "return" => AsmOp::Return,
     "swap" <with:AsmPos> => AsmOp::Swap {<>},
+    "pull" <which:AsmPos> => AsmOp::Pull {<>},
     "pop" <count:AsmPos> <offset:AsmPos> => AsmOp::Pop {<>},
     "jump" <check:LiteralBool?> <to:Either<Ident, AsmPos>> => AsmOp::Jump {<>},
 };
@@ -360,9 +361,9 @@ Declaration: Declaration<'input> = {
     // proto [Add + Sub + Mul + Div + Display] Real { ... }
     "proto" <extends:OptDefault<("[" <SepReq<Item, "+">> "]")>> <name:Ident> <generics:GenericDefs> "{" <sigs:("fnc" <Ident> <Signature> ";")*> "}" => Declaration::Protocol {<>},
     // impl/Vector Add<Self, Self> { fnc add |...| { ... }; }
-    "impl" <r#for:("/" <ConcreteType>)?> "[" <of:ConcreteType> "]" "{" <fncs:("fnc" <Ident> <Closure> ";")*> "}" => Declaration::Implementation {<>},
+    "impl" <r#for:("/" <Item>)?> "[" <of:ProtocolType> "]" "{" <fncs:("fnc" <Ident> <Closure> ";")*> "}" => Declaration::Implementation {<>},
     // fnc/Vector [Zero] zero |...| { ... }
-    "fnc" <of:("/" <ConcreteType>)?> <r#impl:("[" <ConcreteType> "]")?> <name:Ident> <closure:Closure> => Declaration::Function {<>},
+    "fnc" <of:("/" <Item>)?> <r#impl:("[" <ProtocolType> "]")?> <name:Ident> <closure:Closure> => Declaration::Function {<>},
 };
 
 pub Module: Module<'input> = <decls:(<Declaration> ";")*> => Module {<>};

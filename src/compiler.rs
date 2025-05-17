@@ -57,7 +57,7 @@ impl Path {
 //     crates: HashMap<Box<str>, Crate>,
 // }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 enum IntegerTypeSize {
     Byte,   // 8
     Word,   // 16
@@ -79,7 +79,7 @@ impl From<ast::IntegerTypeSize> for IntegerTypeSize {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 enum PrimitiveType {
     String,
     Char,
@@ -88,6 +88,7 @@ enum PrimitiveType {
         signed: bool,
         size: IntegerTypeSize,
     },
+    Float,
     Void,
 }
 
@@ -109,7 +110,7 @@ struct DataType {
     pub fields: Vec<(Box<str>, TypeRef)>
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct ConcreteTypeId {
     pub path: Path,
 }
@@ -128,21 +129,47 @@ struct ConcreteTypeRef {
     pub generics: Vec<TypeRef>,
 }
 
+
+impl From<ConcreteTypeId> for ConcreteTypeRef {
+    fn from(id: ConcreteTypeId) -> Self {
+        Self { id, generics: vec![] }
+    }
+}
+
+
 #[derive(Debug, Clone)]
 enum TypeRef {
     Op(Vec<ConcreteTypeRef>),
-    Concrete(ConcreteTypeRef),
+    Data(ConcreteTypeId),
     Primitive(PrimitiveType),
-    Array(Box<TypeRef>),
+    Array(Option<Box<TypeRef>>),
+    Function(Box<FunctionType>),
+    Nothing,
     Never,
+}
+
+
+impl TypeRef {
+    pub fn within(&self, bounds: &TypeRef) -> bool {
+        match self {
+            Self::Op(ops) => todo!("protos are not supported"),
+            Self::Data(data) => matches!(bounds, Self::Data(other) if data == other),
+            Self::Primitive(lit) => matches!(bounds, Self::Primitive(other) if lit == other),
+            Self::Array(None) => true,
+            Self::Array(Some(item)) => matches!(bounds, Self::Array(other) if item.within(&*other.as_ref().expect("FIXME needs considiration"))),  // fixme
+            Self::Function(_) => false,  // fixme
+            Self::Nothing => matches!(bounds, Self::Nothing),
+            Self::Never => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 struct FunctionType {
     pub captures: Vec<TypeRef>,
-    pub r#return: Option<TypeRef>,
+    pub r#return: TypeRef,
     pub generics: GenericDefs,
-    pub errors: Vec<ConcreteTypeRef>,
+    pub errors: Vec<ConcreteTypeId>,
 }
 
 type GenericDefs = Vec<(Box<str>, Option<TypeRef>)>;
@@ -155,42 +182,6 @@ struct ProtocolType {
 }
 
 #[derive(Debug, Clone)]
-enum Type {
-    Never,
-    Primitive(PrimitiveType),
-    Data(DataType),
-    Protocol(ProtocolType),
-    Array(Box<Type>),
-}
-
-#[derive(Debug, Clone)]
-enum SBlockTag {
-    Simple,
-    Condition {
-        check: SBlock,
-        otherwise: Option<SBlock>,
-    },
-    Selector {
-        cases: Vec<(SBlock, SBlock)>,
-        fallback: Option<SBlock>,
-    },
-    Handle {
-        handlers: Vec<(ConcreteTypeId, Box<str>, SBlock)>,
-        fallback: Option<(Box<str>, SBlock)>,
-    },
-    Unhandle,
-    Loop,
-    While {
-        check: SBlock,
-        do_first: bool,
-    },
-    Over {
-        what: SBlock,
-        with: Box<str>,
-    }
-}
-
-#[derive(Debug, Clone)]
 struct Declaration {
     name: Box<str>,
     r#type: TypeRef,
@@ -199,7 +190,7 @@ struct Declaration {
 
 #[derive(Debug, Clone)]
 struct IntermediatePath {
-    var: Box<str>,
+    var: Option<Box<str>>,
     path: Path,
 }
 
@@ -219,7 +210,7 @@ enum ActionInstruction {
         field: Box<str>,
     },
     Load {
-        item: Either<IntermediatePath, Path>,
+        item: IntermediatePath,
     },
 }
 
@@ -298,7 +289,7 @@ impl From<LiteralValue> for vm::ConstItem {
             LiteralValue::Float(f) => vm::ConstItem::Float(f),
             LiteralValue::Char(c) => vm::ConstItem::Char(c),
             LiteralValue::String(s) => vm::ConstItem::String(s.to_string()),
-            _ => unreachable!("not supported"),
+            _ => unreachable!("not supported ({value:?})"),
         }
     }
 }
@@ -344,13 +335,51 @@ enum Instruction {
     DoStatement(StatementInstruction),
 }
 
+
+#[derive(Debug, Clone)]
+enum SBlockTag {
+    Simple {
+        decls: Vec<Declaration>,
+        code: Vec<Instruction>,
+        closed: bool,
+    },
+    Condition {
+        check: SBlock,
+        code: SBlock,
+        otherwise: Option<SBlock>,
+    },
+    Selector {
+        of: SBlock,
+        cases: Vec<(SBlock, SBlock)>,
+        fallback: Option<SBlock>,
+    },
+    Handle {
+        what: SBlock,
+        handlers: Vec<(ConcreteTypeId, Box<str>, SBlock)>,
+        fallback: Option<(Box<str>, SBlock)>,
+    },
+    Unhandle {
+        what: SBlock,
+    },
+    Loop {
+        code: SBlock,
+    },
+    While {
+        code: SBlock,
+        check: SBlock,
+        do_first: bool,
+    },
+    Over {
+        code: SBlock,
+        what: SBlock,
+        with: Box<str>,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct SBlock {
     tag: Box<SBlockTag>,
     label: Option<Box<str>>,
-    decls: Vec<Declaration>,
-    code: Vec<Instruction>,
-    closed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -391,11 +420,13 @@ enum AsmOp {
     LoadSystemItem { id: Either<Box<str>, AsmId> },
     Access { id: Either<Path, u32> },
     GetType,
-    Call,
+    Call { which: usize },
     SystemCall { id: Either<Box<str>, AsmId> },
     Return,
     Swap { with: usize },
+    Pull { which: usize },
     Pop { count: usize, offset: usize },
+    Copy { which: usize },
     Jump { to: Either<Box<str>, usize>, check: Option<bool> },
 }
 
@@ -426,7 +457,6 @@ struct Function {
 #[derive(Debug, Clone)]
 struct Crate {
     deps: Vec<(Box<str>, (u16, u16, u16))>,
-    type_store: HashMap<Path, Type>,
     implementation_store: HashMap<ConcreteTypeId, Vec<(ConcreteTypeId, Vec<Function>)>>,  // data type id -> (protocol id, impl funcs)
     function_store: HashMap<Path, Function>,
     method_store: HashMap<TypeRef, Vec<Function>>,
@@ -455,7 +485,6 @@ pub enum CompileError {
 
 impl Compiler {
     pub fn load_crate<'s>(&mut self, crate_: CrateSource<'s>) {
-        let mut types = HashMap::new();
         let mut impls = HashMap::new();
         let mut funcs = HashMap::new();
         let mut meths = HashMap::new();
@@ -475,28 +504,28 @@ impl Compiler {
                 }
             };
             let transform_im_item = |item: ast::Item| {
-                if item.root.is_none() && item.path.len() == 1 {
-                    Either::Left(IntermediatePath { var: (**item.path.first().unwrap()).into(), path: transform_item(item) })
-                } else {
-                    Either::Right(transform_item(item))
+                IntermediatePath {
+                    var: (item.root.is_none() && item.path.len() == 1)
+                        .then_some((**item.path.first().unwrap()).into()),
+                    path: transform_item(item),
                 }
             };
-            fn trasform_concrete_type_inner(ct: ast::ConcreteType, ti: &impl Fn(ast::Item) -> Path) -> ConcreteTypeRef {
+            fn trasform_concrete_type_inner(ct: ast::ProtocolType, ti: &impl Fn(ast::Item) -> Path) -> ConcreteTypeRef {
                 ConcreteTypeRef {
-                    id: ti(ct.item).into(),
+                    id: ti(ct.base).into(),
                     generics: ct.generics.into_iter().map(|t| transform_type_inner(t, ti)).collect()
                 }
             }
             fn transform_type_inner(t: ast::Type, ti: &impl Fn(ast::Item) -> Path) -> TypeRef {
                 match t {
                     ast::Type::Primitive(p) => TypeRef::Primitive(p.into()),
-                    ast::Type::Concrete(c) => TypeRef::Concrete(trasform_concrete_type_inner(c, ti)),
-                    ast::Type::Array(t) => TypeRef::Array(Box::new(transform_type_inner(*t, ti))),
+                    ast::Type::Data(i) => TypeRef::Data(ti(i).into()),
+                    ast::Type::Array(t) => TypeRef::Array(Some(Box::new(transform_type_inner(*t, ti)))),
                     ast::Type::Op(ps) => TypeRef::Op(ps.into_iter().map(|ct| trasform_concrete_type_inner(ct, ti)).collect()),
                     ast::Type::Never => TypeRef::Never,
                 }
             }
-            let transform_concrete_type = |ct| trasform_concrete_type_inner(ct, &transform_item);
+            // let transform_concrete_type = |ct| trasform_concrete_type_inner(ct, &transform_item);
             let transform_type = |t| transform_type_inner(t, &transform_item);
 
             for decl in r#mod.decls {
@@ -515,9 +544,9 @@ impl Compiler {
 
                         let f_type = FunctionType {
                             captures: closure.sig.captures.into_iter().map(|c| transform_type(c.r#type)).collect(),
-                            r#return: closure.sig.r#return.map(transform_type),
+                            r#return: closure.sig.r#return.map(transform_type).unwrap_or(TypeRef::Nothing),
                             generics: closure.sig.generics.defs.into_iter().map(|def| (def.name.into(), def.constraint.map(transform_type))).collect(),
-                            errors: closure.sig.errors.into_iter().map(transform_concrete_type).collect(),
+                            errors: closure.sig.errors.into_iter().map(|i| transform_item(i).into()).collect(),
                         };
 
                         let code = match closure.code {
@@ -526,7 +555,7 @@ impl Compiler {
                                     fn transform_stmt_b<'s>(
                                         stmt_b: ast::StatementBlock<'s>,
                                         tt: &impl Fn(ast::Type<'s>) -> TypeRef,
-                                        timi: &impl Fn(ast::Item<'s>) -> Either<IntermediatePath, Path>,
+                                        timi: &impl Fn(ast::Item<'s>) -> IntermediatePath,
                                         ti: &impl Fn(ast::Item<'s>) -> Path,
                                     ) -> SBlock {
                                         let mut decls = Vec::new();
@@ -570,151 +599,135 @@ impl Compiler {
 
                                         SBlock {
                                             label: None,
-                                            tag: Box::new(SBlockTag::Simple),
-                                            closed: stmt_b.closed,
-                                            decls, code
+                                            tag: Box::new(SBlockTag::Simple {
+                                                code, decls, closed: stmt_b.closed
+                                            }),
                                         }
                                     }
 
                                     fn transform_expr<'s>(
                                         expr: ast::Expression<'s>,
                                         tt: &impl Fn(ast::Type<'s>) -> TypeRef,
-                                        timi: &impl Fn(ast::Item<'s>) -> Either<IntermediatePath, Path>,
+                                        timi: &impl Fn(ast::Item<'s>) -> IntermediatePath,
                                         ti: &impl Fn(ast::Item<'s>) -> Path,
                                     ) -> SBlock {
                                         match expr {
                                             ast::Expression::Action(act_e) =>
                                                 SBlock {
-                                                    tag: Box::new(SBlockTag::Simple),
+                                                    tag: Box::new(SBlockTag::Simple {
+                                                        closed: false,
+                                                        decls: vec![],
+                                                        code: vec![Instruction::DoAction(match *act_e {
+                                                            ast::ActionExpression::Call { what, args } =>
+                                                                ActionInstruction::Call {
+                                                                    what: transform_expr(what, tt, timi, ti),
+                                                                    args: args.into_iter().map(|e| transform_expr(e, tt, timi, ti)).collect(),
+                                                                },
+                                                            ast::ActionExpression::MethodCall { what, method, args } =>
+                                                                ActionInstruction::MethodCall {
+                                                                    what: transform_expr(what, tt, timi, ti),
+                                                                    method: method.into(),
+                                                                    args: args.into_iter().map(|e| transform_expr(e, tt, timi, ti)).collect()
+                                                                },
+                                                            ast::ActionExpression::Access { of, field } =>
+                                                                ActionInstruction::Access {
+                                                                    of: transform_expr(of, tt, timi, ti),
+                                                                    field: field.into(),
+                                                                },
+                                                            ast::ActionExpression::Load { item } =>
+                                                                ActionInstruction::Load {
+                                                                    item: timi(item),
+                                                                },
+                                                        })],
+                                                    }),
                                                     label: None,
-                                                    closed: false,
-                                                    decls: vec![],
-                                                    code: vec![Instruction::DoAction(match *act_e {
-                                                        ast::ActionExpression::Call { what, args } =>
-                                                            ActionInstruction::Call {
-                                                                what: transform_expr(what, tt, timi, ti),
-                                                                args: args.into_iter().map(|e| transform_expr(e, tt, timi, ti)).collect(),
-                                                            },
-                                                        ast::ActionExpression::MethodCall { what, method, args } =>
-                                                              ActionInstruction::MethodCall {
-                                                                  what: transform_expr(what, tt, timi, ti),
-                                                                  method: method.into(),
-                                                                  args: args.into_iter().map(|e| transform_expr(e, tt, timi, ti)).collect()
-                                                              },
-                                                        ast::ActionExpression::Access { of, field } =>
-                                                            ActionInstruction::Access {
-                                                                of: transform_expr(of, tt, timi, ti),
-                                                                field: field.into(),
-                                                            },
-                                                        ast::ActionExpression::Load { item } => 
-                                                            ActionInstruction::Load {
-                                                                item: timi(item),
-                                                            },
-                                                    })],
                                                 },
                                             ast::Expression::Block(block_e) => {
-                                                let (tag, inblock) = match *block_e.kind {
-                                                    ast::BlockExpressionKind::Simple { code } =>
-                                                        (
-                                                            SBlockTag::Simple,
-                                                            transform_stmt_b(code, tt, timi, ti)
-                                                        ),
+                                                let tag = match *block_e.kind {
+                                                    ast::BlockExpressionKind::Simple { code } => *transform_stmt_b(code, tt, timi, ti).tag,
                                                     ast::BlockExpressionKind::Condition { code, check, otherwise } =>
-                                                        (
-                                                            SBlockTag::Condition {
-                                                                check: transform_expr(check, tt, timi, ti),
-                                                                otherwise: otherwise.map(|sb| transform_stmt_b(sb, tt, timi, ti)),
-                                                            },
-                                                            transform_stmt_b(code, tt, timi, ti),
-                                                        ),
+                                                        SBlockTag::Condition {
+                                                            code: transform_stmt_b(code, tt, timi, ti),
+                                                            check: transform_expr(check, tt, timi, ti),
+                                                            otherwise: otherwise.map(|sb| transform_stmt_b(sb, tt, timi, ti)),
+                                                        },
                                                     ast::BlockExpressionKind::Selector { of, fallback, cases } =>
-                                                        (
-                                                            SBlockTag::Selector {
-                                                                cases: cases.into_iter()
-                                                                    .map(|(e, sb)| (transform_expr(e, tt, timi, ti), transform_stmt_b(sb, tt, timi, ti)))
-                                                                    .collect(),
-                                                                fallback: fallback.map(|sb| transform_stmt_b(sb, tt, timi, ti)),
-                                                            },
-                                                            transform_expr(of, tt, timi, ti),
-                                                        ),
+                                                        SBlockTag::Selector {
+                                                            of: transform_expr(of, tt, timi, ti),
+                                                            cases: cases.into_iter()
+                                                                .map(|(e, sb)| (transform_expr(e, tt, timi, ti), transform_stmt_b(sb, tt, timi, ti)))
+                                                                .collect(),
+                                                            fallback: fallback.map(|sb| transform_stmt_b(sb, tt, timi, ti)),
+                                                        },
                                                     ast::BlockExpressionKind::Handle { of, handlers, fallback } =>
-                                                        (
-                                                            SBlockTag::Handle {
-                                                                handlers: handlers.into_iter()
-                                                                    .map(|(r#type, name, sb)| 
-                                                                        (ti(r#type).into(), name.into(), transform_stmt_b(sb, tt, timi, ti)))
-                                                                    .collect(),
-                                                                fallback: fallback.map(|(s, sb)| (s.into(), transform_stmt_b(sb, tt, timi, ti)))
-                                                            },
-                                                            transform_expr(of, tt, timi, ti),
-                                                        ),
+                                                        SBlockTag::Handle {
+                                                            what: transform_expr(of, tt, timi, ti),
+                                                            handlers: handlers.into_iter()
+                                                                .map(|(r#type, name, sb)|
+                                                                    (ti(r#type).into(), name.into(), transform_stmt_b(sb, tt, timi, ti)))
+                                                                .collect(),
+                                                            fallback: fallback.map(|(s, sb)| (s.into(), transform_stmt_b(sb, tt, timi, ti)))
+                                                        },
                                                     ast::BlockExpressionKind::Unhandle { code } =>
-                                                        (
-                                                            SBlockTag::Unhandle,
-                                                            transform_stmt_b(code, tt, timi, ti),
-                                                        ),
+                                                        SBlockTag::Unhandle {
+                                                            what: transform_stmt_b(code, tt, timi, ti)
+                                                        },
                                                     ast::BlockExpressionKind::Loop { code } =>
-                                                        (
-                                                            SBlockTag::Loop,
-                                                            transform_stmt_b(code, tt, timi, ti),
-                                                        ),
+                                                        SBlockTag::Loop {
+                                                            code: transform_stmt_b(code, tt, timi, ti),
+                                                        },
                                                     ast::BlockExpressionKind::While { check, code, do_first } =>
-                                                        (
-                                                            SBlockTag::While {
-                                                                check: transform_expr(check, tt, timi, ti),
-                                                                do_first,
-                                                            },
-                                                            transform_stmt_b(code, tt, timi, ti),
-                                                        ),
+                                                        SBlockTag::While {
+                                                            code: transform_stmt_b(code, tt, timi, ti),
+                                                            check: transform_expr(check, tt, timi, ti),
+                                                            do_first,
+                                                        },
                                                     ast::BlockExpressionKind::Over { code, what, with } =>
-                                                        (
-                                                            SBlockTag::Over {
-                                                                what: transform_expr(what, tt, timi, ti),
-                                                                with: with.into(),
-                                                            },
-                                                            transform_stmt_b(code, tt, timi, ti),
-                                                        ),
+                                                        SBlockTag::Over {
+                                                            code: transform_stmt_b(code, tt, timi, ti),
+                                                            what: transform_expr(what, tt, timi, ti),
+                                                            with: with.into(),
+                                                        },
                                                 };
 
                                                 SBlock {
                                                     label: block_e.label.map(|s| s.into()),
                                                     tag: Box::new(tag),
-                                                    code: inblock.code,
-                                                    decls: inblock.decls,
-                                                    closed: inblock.closed,
                                                 }
                                             },
                                             ast::Expression::Construct(cnstr_e) =>
                                                 SBlock {
                                                     label: None,
-                                                    tag: Box::new(SBlockTag::Simple),
-                                                    closed: false,
-                                                    decls: vec![],
-                                                    code: vec![Instruction::Construct(
-                                                        match cnstr_e {
-                                                            ast::ConstructExpression::Array { vals } =>
-                                                                ConstructInstruction::Array {
-                                                                    vals: vals.into_iter()
-                                                                        .map(|e| transform_expr(e, tt, timi, ti))
-                                                                        .collect()
-                                                                },
-                                                            ast::ConstructExpression::Data { what, fields } =>
-                                                                ConstructInstruction::Data {
-                                                                    what: ti(what).into(),
-                                                                    fields: fields.into_iter()
-                                                                        .map(|(n, e)| (n.into(), transform_expr(e, tt, timi, ti)))
-                                                                        .collect(),
-                                                                },
-                                                        },
-                                                    )],
+                                                    tag: Box::new(SBlockTag::Simple {
+                                                        closed: false,
+                                                        decls: vec![],
+                                                        code: vec![Instruction::Construct(
+                                                            match cnstr_e {
+                                                                ast::ConstructExpression::Array { vals } =>
+                                                                    ConstructInstruction::Array {
+                                                                        vals: vals.into_iter()
+                                                                            .map(|e| transform_expr(e, tt, timi, ti))
+                                                                            .collect()
+                                                                    },
+                                                                ast::ConstructExpression::Data { what, fields } =>
+                                                                    ConstructInstruction::Data {
+                                                                        what: ti(what).into(),
+                                                                        fields: fields.into_iter()
+                                                                            .map(|(n, e)| (n.into(), transform_expr(e, tt, timi, ti)))
+                                                                            .collect(),
+                                                                    },
+                                                            },
+                                                        )],
+                                                    }),
                                                 },
                                             ast::Expression::Literal(lit_e) =>
                                                 SBlock {
                                                     label: None,
-                                                    tag: Box::new(SBlockTag::Simple),
-                                                    closed: false,
-                                                    decls: vec![],
-                                                    code: vec![Instruction::LoadLiteral(lit_e.into())],
+                                                    tag: Box::new(SBlockTag::Simple {
+                                                        closed: false,
+                                                        decls: vec![],
+                                                        code: vec![Instruction::LoadLiteral(lit_e.into())],
+                                                    }),
                                                 },
                                         }
                                     }
@@ -767,7 +780,7 @@ impl Compiler {
                                                         id: id.map_left(|f| transform_item(f)),
                                                     },
                                                 ast::AsmOp::GetType => AsmOp::GetType,
-                                                ast::AsmOp::Call => AsmOp::Call,
+                                                ast::AsmOp::Call { which } => AsmOp::Call { which },
                                                 ast::AsmOp::SystemCall { id } =>
                                                     AsmOp::SystemCall {
                                                         id: id.map_either(
@@ -777,7 +790,9 @@ impl Compiler {
                                                     },
                                                 ast::AsmOp::Return => AsmOp::Return,
                                                 ast::AsmOp::Swap { with } => AsmOp::Swap { with },
+                                                ast::AsmOp::Pull { which } => AsmOp::Pull { which },
                                                 ast::AsmOp::Pop { count, offset } => AsmOp::Pop { count, offset },
+                                                ast::AsmOp::Copy { which } => AsmOp::Copy { which },
                                                 ast::AsmOp::Jump { to, check } =>
                                                     AsmOp::Jump {
                                                         to: to.map_left(|label| label.into()),
@@ -810,7 +825,6 @@ impl Compiler {
             crate_.id,
             Crate {
                 deps: crate_.deps,
-                type_store: types,
                 implementation_store: impls,
                 method_store: meths,
                 function_store: funcs,
@@ -819,12 +833,34 @@ impl Compiler {
         );
     }
 
+    // xxx should be refactored back
+    fn lit_type(lit: &LiteralValue) -> PrimitiveType {
+        match lit {
+            LiteralValue::Integer(LiteralInteger::I16(_)) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Word },
+            LiteralValue::Integer(LiteralInteger::I32(_)) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::DWord },
+            LiteralValue::Integer(LiteralInteger::I64(_)) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::QWord },
+            LiteralValue::Integer(LiteralInteger::I128(_)) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::OWord },
+            LiteralValue::Integer(LiteralInteger::U16(_)) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Word },
+            LiteralValue::Integer(LiteralInteger::U32(_)) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::DWord },
+            LiteralValue::Integer(LiteralInteger::U64(_)) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::QWord },
+            LiteralValue::Integer(LiteralInteger::U128(_)) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::OWord },
+            LiteralValue::Char(_) => PrimitiveType::Char,
+            LiteralValue::String(_) => PrimitiveType::String,
+            LiteralValue::Float(_) => PrimitiveType::Float,
+            LiteralValue::Bool(_) => PrimitiveType::Bool,
+            LiteralValue::Void => PrimitiveType::Void,
+        }
+    }
+
     pub fn compile(self, entry_func: Option<Path>) -> Result<(Vec<vm::CrateDeclaration>, Option<(vm::CrateId, u32)>), CompileError> {
         let mut entry_func_id = None;
         Ok((self.crates.into_iter().map(|(crate_id_raw, crate_)| {
-            let (mut items, mut item_map) =
+            let (mut items, item_map) =
                 crate_.item_store.into_iter().enumerate()
-                    .map(|(i, (path, item))| (item.into(), (path, i)))
+                    .map(|(i, (path, item))| {
+                        let item_type = Self::lit_type(&item);
+                        (item.into(), (path, (i, item_type)))
+                    })
                     .collect::<(Vec<_>, HashMap<_, _>)>();
 
             let func_map = crate_.function_store.iter().enumerate()
@@ -835,6 +871,102 @@ impl Compiler {
                 .map(|func| vm::FunctionDeclaration {
                         code: match func.code {
                             Block::Structured(s_block) => {
+                                fn resolve_type(
+                                    s_block: &SBlock,
+                                    func_map: &HashMap<Path, (usize, FunctionType)>,
+                                    var_scope: &(HashMap<Box<str>, (usize, TypeRef)>, usize),
+                                    item_map: &HashMap<Path, (usize, PrimitiveType)>,
+                                    rec: bool,
+                                ) -> TypeRef {
+                                    match &*s_block.tag {
+                                        SBlockTag::Simple { code, closed, decls } => {
+                                            assert!(decls.is_empty(), "decls are not supported while type resolving");
+                                            if *closed || code.is_empty() {
+                                                TypeRef::Nothing
+                                            } else {
+                                                for instr in code.iter() {
+                                                    return match instr {
+                                                        Instruction::DoStatement(StatementInstruction::Return { .. })
+                                                        | Instruction::DoStatement(StatementInstruction::Repeat { .. })
+                                                        | Instruction::DoStatement(StatementInstruction::Throw { .. }) if !rec =>
+                                                            TypeRef::Never,
+                                                        Instruction::DoAction(ActionInstruction::Call { what, .. }) =>
+                                                            if !rec
+                                                                && let TypeRef::Function(func) = resolve_type(what, func_map, var_scope, item_map, rec)
+                                                                && matches!(func.r#return, TypeRef::Never) {
+                                                                TypeRef::Never
+                                                            } else {
+                                                                continue
+                                                            }
+                                                        _ => continue,
+                                                    };
+                                                };
+
+                                                match code.last().unwrap() {
+                                                    Instruction::LoadLiteral(lit) =>
+                                                        TypeRef::Primitive(Compiler::lit_type(lit)),
+                                                    Instruction::Construct(ConstructInstruction::Data { what, .. }) =>
+                                                        TypeRef::Data(what.clone()),
+                                                    Instruction::Construct(ConstructInstruction::Array { vals, .. }) =>
+                                                    // fixme forbid arrays of nothing
+                                                        TypeRef::Array(vals.first().map(|b| Box::new(resolve_type(b, func_map, var_scope, item_map, rec)))),
+                                                    Instruction::DoBlock(b) => resolve_type(b, func_map, var_scope, item_map, true),
+                                                    Instruction::DoAction(ActionInstruction::Load { item }) => {
+                                                        if let Some(var_name) = item.var.as_ref()
+                                                            && let Some((_, r#type)) = var_scope.0.get(var_name) {
+                                                            r#type.clone()
+                                                        } else {
+                                                            assert!(item.path.crate_.is_none());
+                                                            item_map.get(&item.path)
+                                                                .map(|(_, t)| TypeRef::Primitive(t.clone()))
+                                                                .unwrap_or_else(|| {
+                                                                    TypeRef::Function(Box::new(func_map.get(&item.path).unwrap().1.clone()))
+                                                                })
+                                                        }
+                                                    },
+                                                    Instruction::DoAction(ActionInstruction::Access { .. }) => todo!("fields are not supported"),
+                                                    Instruction::DoAction(ActionInstruction::MethodCall { .. }) => todo!("methods are not supported"),
+                                                    Instruction::DoAction(ActionInstruction::Call { what, .. }) =>
+                                                        if let TypeRef::Function(func) = resolve_type(what, func_map, var_scope, item_map, rec) {
+                                                            func.r#return
+                                                        } else {
+                                                            panic!("cant call non functions")
+                                                        },
+                                                    Instruction::DoStatement(StatementInstruction::Assignment { .. }) => TypeRef::Nothing,
+                                                    _ => unreachable!()
+                                                }
+                                            }
+                                        },
+                                        SBlockTag::Handle { what, .. }
+                                        | SBlockTag::Unhandle { what } =>
+                                            resolve_type(what, func_map, var_scope, item_map, rec),
+                                        SBlockTag::Condition { code, .. } =>
+                                            resolve_type(code, func_map, var_scope, item_map, true),
+                                        SBlockTag::Selector { cases, .. } =>
+                                            cases.first().map(|(_, b)| resolve_type(b, func_map, var_scope, item_map, true)).unwrap_or(TypeRef::Nothing),
+                                        SBlockTag::Loop { code } =>
+                                            if let TypeRef::Never = resolve_type(code, func_map, var_scope, item_map, rec) {
+                                                TypeRef::Never
+                                            } else {
+                                                if let SBlockTag::Simple { code, .. } = &*code.tag {
+                                                    for instr in code {
+                                                        match instr {
+                                                            Instruction::DoStatement(StatementInstruction::Escape { value: Some(value), .. }) =>
+                                                                return resolve_type(value, func_map, var_scope, item_map, rec),
+                                                            _ => {},
+                                                        };
+                                                    };
+                                                    TypeRef::Never
+                                                } else {
+                                                    panic!("uh oh")
+                                                }
+                                            },
+                                        SBlockTag::While { code, .. }
+                                        | SBlockTag::Over { code, .. } =>
+                                            TypeRef::Nothing,
+                                    }
+                                }
+
                                 fn compile_instruction(
                                     instr: Instruction,
                                     block_starts_at: usize,
@@ -842,18 +974,82 @@ impl Compiler {
                                     var_scope: &mut (HashMap<Box<str>, (usize, TypeRef)>, usize),
                                     label_scope: &mut HashMap<&str, usize>,
                                     func_map: &HashMap<Path, (usize, FunctionType)>,
-                                    item_map: &HashMap<Path, usize>,
-                                    add_item: &mut impl FnMut(LiteralValue) -> usize,
+                                    item_map: &HashMap<Path, (usize, PrimitiveType)>,
+                                    items: &mut Vec<vm::ConstItem>,
                                 ) -> Vec<vm::Op> {
                                     match instr {
                                         Instruction::DoBlock(block) =>
-                                            compile_s_block(block, this_instr_at, var_scope, label_scope, func_map, item_map, add_item),
+                                            compile_s_block(block, this_instr_at, var_scope, label_scope, func_map, item_map, items),
                                         Instruction::LoadLiteral(lit) =>
-                                            vec![vm::Op::LoadConstItem { id: add_item(lit).into() }],
+                                            vec![match lit {
+                                                LiteralValue::Bool(bool) => vm::Op::LoadSystemItem { id: (bool as usize).into() },
+                                                LiteralValue::Void => vm::Op::LoadSystemItem { id: 2.into() },
+                                                lit => vm::Op::LoadConstItem {
+                                                    id: {
+                                                        let id = items.len();
+                                                        items.push(lit.into());
+                                                        id.into()
+                                                    },
+                                                },
+                                            }],
                                         Instruction::DoAction(ActionInstruction::Access { of, field }) => todo!("fields access not supported"),
-                                        Instruction::DoAction(ActionInstruction::Call { what, args }) => todo!(),
+                                        Instruction::DoAction(ActionInstruction::Call { what, args }) => {
+                                            if let TypeRef::Function(func) = resolve_type(&what, func_map, var_scope, item_map, false) {
+                                                let FunctionType { generics, captures, r#return, .. } = *func;
+                                                assert!(generics.is_empty(), "generics are not supported");
+
+                                                if args.len() != captures.len() {
+                                                    panic!("function expected different number of arguments");
+                                                };
+
+                                                if !args.iter().map(|arg| resolve_type(arg, func_map, var_scope, item_map, false)).zip(captures.into_iter()).all(|(arg, cap)| arg.within(&cap)) {
+                                                    panic!("some args have mismatched types");
+                                                };
+
+                                                let get_func = compile_s_block(what, this_instr_at, var_scope, label_scope, func_map, item_map, items);
+                                                let mut offset = get_func.len();
+                                                let mut args_code = Vec::new();
+                                                let arg_count = args.len();
+                                                for arg in args {
+                                                    let mut arg_code = compile_s_block(arg, this_instr_at+offset, var_scope, label_scope, func_map, item_map, items);
+                                                    offset += arg_code.len();
+                                                    args_code.append(&mut arg_code);
+                                                };
+
+                                                [
+                                                    get_func,
+                                                    args_code,
+                                                    vec![
+                                                        vm::Op::Call { which: arg_count },
+                                                        vm::Op::Pop {
+                                                            count: arg_count + 1,
+                                                            offset: if let TypeRef::Nothing = r#return { 0 } else { 1 },
+                                                        },
+                                                    ]
+                                                ].concat()
+                                            } else {
+                                                panic!("cant call not functions")
+                                            }
+                                        },
                                         Instruction::DoAction(ActionInstruction::MethodCall { what, method, args }) => todo!("methods are not supported"),
-                                        Instruction::DoAction(ActionInstruction::Load { item }) => todo!(),
+                                        Instruction::DoAction(ActionInstruction::Load { item }) =>  {
+                                            if let Some(var) = item.var.as_ref()
+                                                && let Some(&(i, _)) = var_scope.0.get(var) {
+                                                // todo remove clone
+                                                let cur_top = var_scope.0.iter().find(|(_, &(i, _))| i == var_scope.1).unwrap().0.clone();
+                                                var_scope.0.get_mut(&cur_top).unwrap().0 = i;
+                                                vec![vm::Op::Copy { which: var_scope.1-i }]
+                                            } else {
+                                                assert!(item.path.crate_.is_none());
+                                                if let Some((i, _)) = item_map.get(&item.path) {
+                                                    vec![vm::Op::LoadConstItem { id: (*i).into() }]
+                                                } else if let Some((i, _)) = func_map.get(&item.path) {
+                                                    vec![vm::Op::LoadFunction { id: (*i).into() }]
+                                                } else {
+                                                    panic!("such item doesnt exist");
+                                                }
+                                            }
+                                        },
                                         Instruction::Construct(ConstructInstruction::Data { what, fields }) => todo!("datas are not supported"),
                                         Instruction::Construct(ConstructInstruction::Array { vals }) => todo!("arrays are not supported"),
                                         Instruction::DoStatement(StatementInstruction::Assignment { what, to }) => todo!(),
@@ -870,78 +1066,172 @@ impl Compiler {
                                     var_scope: &mut (HashMap<Box<str>, (usize, TypeRef)>, usize),
                                     label_scope: &mut HashMap<&str, usize>,
                                     func_map: &HashMap<Path, (usize, FunctionType)>,
-                                    item_map: &HashMap<Path, usize>,
-                                    add_item: &mut impl FnMut(LiteralValue) -> usize,
+                                    item_map: &HashMap<Path, (usize, PrimitiveType)>,
+                                    items: &mut Vec<vm::ConstItem>,
                                 ) -> Vec<vm::Op> {
-                                    let mut code_offset = 0;
-                                    let init_code = s_block.decls.iter_mut()
-                                        .map(|Declaration { name, default, r#type }| {
-                                            if var_scope.0.contains_key(&name[..]) {
-                                                panic!("variable shadowing is forbidden");
+                                    let self_type = resolve_type(&s_block, func_map, var_scope, item_map, false);
+
+                                    match *s_block.tag {
+                                        SBlockTag::Simple { code, mut decls, closed } => {
+                                            let mut code_offset = 0;
+                                            let init_code = decls.iter_mut()
+                                                .map(|Declaration { name, default, r#type }| {
+                                                    if var_scope.0.contains_key(&name[..]) {
+                                                        panic!("variable shadowing is forbidden");
+                                                    };
+
+                                                    var_scope.0.insert(name.clone(), (var_scope.1+1, r#type.clone()));
+                                                    var_scope.1 += 1;
+
+                                                    if let Some(val) = default.take() {
+                                                        let def_code = compile_s_block(val, code_offset, var_scope, label_scope, func_map, item_map, items);
+                                                        code_offset += def_code.len();
+                                                        def_code
+                                                    } else {
+                                                        code_offset += 1;
+                                                        vec![vm::Op::LoadSystemItem { id: 2.into() }]  // fixme soft code this
+                                                    }
+                                                })
+                                                .reduce(|mut a, mut b| { a.append(&mut b); a })
+                                                .unwrap_or_else(|| vec![]);
+
+                                            let last_instr_i = code.len() - 1;
+                                            let mut offset = init_code.len();
+                                            let main_code = code.into_iter().enumerate()
+                                                .map(|(i, instr)| {
+                                                    let ret_something = !resolve_type(
+                                                        &SBlock {
+                                                            label: None,
+                                                            tag: Box::new(SBlockTag::Simple {
+                                                                closed: false,
+                                                                decls: vec![],
+                                                                code: vec![instr.clone()],
+                                                            }),
+                                                        },
+                                                        func_map,
+                                                        var_scope,
+                                                        item_map,
+                                                        false,
+                                                    ).within(&TypeRef::Nothing);
+                                                    let mut code = compile_instruction(instr, starts_at, starts_at + offset, var_scope, label_scope, func_map, item_map, items);
+                                                    offset += code.len();
+                                                    if ret_something && (closed || i != last_instr_i) {
+                                                        code.push(vm::Op::Pop { count: 1, offset: 0 });
+                                                    };
+                                                    code
+                                                })
+                                                .reduce(|mut a, mut b| { a.append(&mut b); a })
+                                                .unwrap_or_else(|| vec![]);
+
+                                            let deinit_code = decls.iter()
+                                                .map(|Declaration { name, .. }| {
+                                                    let cur_i = var_scope.0[&name[..]].0;
+                                                    let cur_top = var_scope.0.iter()
+                                                        .find_map(
+                                                            |(name, &(pos, _))|
+                                                            (pos == var_scope.1).then_some(name.clone())
+                                                        ).unwrap();
+
+                                                    let pop_at = var_scope.1 - cur_i;
+                                                    var_scope.0.get_mut(&cur_top).unwrap().0 = cur_i;
+                                                    var_scope.0.remove(&name[..]);
+                                                    var_scope.1 -= 1;
+
+                                                    vm::Op::Pop { count: 1, offset: pop_at }
+                                                })
+                                                .collect();
+
+                                            [init_code, main_code, deinit_code].concat()
+                                        },
+                                        SBlockTag::Condition { code, check, otherwise } => {
+                                            if let Some(b) = otherwise.as_ref() {
+                                                if !resolve_type(b, func_map, var_scope, item_map, false).within(&self_type) {
+                                                    panic!("branch is not of the same return type");
+                                                };
                                             };
 
-                                            var_scope.0.insert(name.clone(), (var_scope.1+1, r#type.clone()));
-                                            var_scope.1 += 1;
+                                            if !resolve_type(&check, func_map, var_scope, item_map, false).within(&TypeRef::Primitive(PrimitiveType::Bool)) {
+                                                panic!("check is not bool");
+                                            };
 
-                                            if let Some(val) = default.take() {
-                                                let def_code = compile_s_block(val, code_offset, var_scope, label_scope, func_map, item_map, add_item);
-                                                code_offset += def_code.len();
-                                                def_code
+                                            let check_code = compile_s_block(check, starts_at, var_scope, label_scope, func_map, item_map, items);
+
+                                            let main_pos = starts_at + check_code.len() + 2;
+                                            let main_code = compile_s_block(code, main_pos, var_scope, label_scope, func_map, item_map, items);
+                                            let after_main_pos = main_pos + main_code.len() + 1;
+
+                                            let otherwise_code = otherwise.map(|b| compile_s_block(b, after_main_pos, var_scope, label_scope, func_map, item_map, items));
+                                            let after_otherwise_pos = after_main_pos + otherwise_code.as_ref().map_or(0, |c| c.len()) + 2;
+
+                                            if let Some(otherwise) = otherwise_code {
+                                                [
+                                                    check_code,
+                                                    vec![vm::Op::Jump {
+                                                        to: main_pos,
+                                                        check: Some(true),
+                                                    }],
+                                                    vec![vm::Op::Jump {
+                                                        to: after_main_pos + 1,
+                                                        check: None,
+                                                    }],
+                                                    vec![vm::Op::Pop {
+                                                        count: 1,
+                                                        offset: 0,
+                                                    }],
+                                                    main_code,
+                                                    vec![vm::Op::Jump {
+                                                        to: after_otherwise_pos,
+                                                        check: None,
+                                                    }],
+                                                    vec![vm::Op::Pop {
+                                                        count: 1,
+                                                        offset: 0,
+                                                    }],
+                                                    otherwise,
+                                                ].concat()
                                             } else {
-                                                code_offset += 1;
-                                                vec![vm::Op::LoadSystemItem { id: 2.into() }]  // fixme soft code this
+                                                [
+                                                    check_code,
+                                                    vec![vm::Op::Jump {
+                                                        to: main_pos,
+                                                        check: Some(true),
+                                                    }],
+                                                    vec![vm::Op::Jump {
+                                                        to: after_main_pos,
+                                                        check: None,
+                                                    }],
+                                                    vec![vm::Op::Pop {
+                                                        count: 1,
+                                                        offset: 0,
+                                                    }],
+                                                    main_code,
+                                                ].concat()
                                             }
-                                        })
-                                        .reduce(|mut a, mut b| { a.append(&mut b); a })
-                                        .unwrap_or_else(|| vec![]);
-
-                                    let code = match *s_block.tag {
-                                        SBlockTag::Simple =>
-                                            s_block.code.into_iter().enumerate()
-                                                .map(|(i, instr)| compile_instruction(instr, starts_at, starts_at + i, var_scope, label_scope, func_map, item_map, add_item))
-                                                .reduce(|mut a, mut b| { a.append(&mut b); a })
-                                                .unwrap_or_else(|| vec![]),
-                                        SBlockTag::Condition { .. } => todo!(),
+                                        },
                                         SBlockTag::Selector { .. } => todo!(),
                                         SBlockTag::Handle { .. } => todo!(),
-                                        SBlockTag::Unhandle => todo!(),
-                                        SBlockTag::Loop => todo!(),
+                                        SBlockTag::Unhandle { .. } => todo!(),
+                                        SBlockTag::Loop { .. } => todo!(),
                                         SBlockTag::While { .. } => todo!(),
                                         SBlockTag::Over { .. } => todo!(),
-                                    };
-
-                                    // fixme handle blocks with nothing
-                                    eprintln!("FIXME WARNING - HANDLE BLOCKS WITH NOTHING");
-
-                                    let deinit_code = s_block.decls.iter()
-                                        .map(|Declaration { name, .. }| {
-                                            let cur_i = var_scope.0[&name[..]].0;
-                                            let cur_top = var_scope.0.iter()
-                                                .find_map(
-                                                    |(name, &(pos, _))|
-                                                    (pos == var_scope.1).then_some(name.clone())
-                                                ).unwrap();
-
-                                            let pop_at = var_scope.1 - cur_i;
-                                            var_scope.0.get_mut(&cur_top).unwrap().0 = cur_i;
-                                            var_scope.0.remove(&name[..]);
-                                            var_scope.1 -= 1;
-
-                                            vm::Op::Pop { count: 1, offset: pop_at }
-                                        })
-                                        .collect();
-
-                                    [init_code, code, deinit_code].concat()
+                                    }
                                 }
 
-                                compile_s_block(
+                                if !resolve_type(&s_block, &func_map, &(HashMap::new(), 0), &item_map, false).within(&func.r#type.r#return) {
+                                    panic!("return value is of wrong return type");
+                                };
+
+                                let mut code = compile_s_block(
                                     s_block,
                                     0,
                                     &mut (HashMap::new(), 0),
                                     &mut HashMap::new(),
                                     &func_map,
-                                    &mut item_map,
-                                )
+                                    &item_map,
+                                    &mut items,
+                                );
+                                code.push(vm::Op::Return);
+                                code
                             },
                             Block::Asm(asm) => {
                                 let label_store = asm.code.iter().enumerate()
@@ -988,7 +1278,7 @@ impl Compiler {
                                         },
                                     AsmOp::Access { .. } => { todo!("access instr is not supported") }
                                     AsmOp::GetType => vm::Op::GetType,
-                                    AsmOp::Call => vm::Op::Call,
+                                    AsmOp::Call { which } => vm::Op::Call { which },
                                     AsmOp::SystemCall { id } =>
                                         vm::Op::SystemCall {
                                             id: match id {
@@ -1004,7 +1294,9 @@ impl Compiler {
                                         },
                                     AsmOp::Return => vm::Op::Return,
                                     AsmOp::Swap { with } => vm::Op::Swap { with },
+                                    AsmOp::Pull { which } => vm::Op::Pull { which },
                                     AsmOp::Pop { count, offset } => vm::Op::Pop { count, offset },
+                                    AsmOp::Copy { which } => vm::Op::Copy { which },
                                     AsmOp::Jump { to, check } =>
                                         vm::Op::Jump {
                                             check,

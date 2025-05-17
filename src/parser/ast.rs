@@ -40,16 +40,16 @@ pub enum PrimitiveType {
 
 #[derive(Debug, Clone)]
 pub enum Type<'s> {
-    Op(Vec<ConcreteType<'s>>),
-    Concrete(ConcreteType<'s>),
+    Op(Vec<ProtocolType<'s>>),
+    Data(Item<'s>),
     Primitive(PrimitiveType),
     Array(Box<Type<'s>>),
     Never
 }
 
 #[derive(Debug, Clone)]
-pub struct ConcreteType<'s> {
-    pub item: Item<'s>,
+pub struct ProtocolType<'s> {
+    pub base: Item<'s>,
     pub generics: Vec<Type<'s>>,
 }
 
@@ -75,7 +75,7 @@ pub struct Signature<'s> {
     pub captures: Vec<Capture<'s>>,
     pub r#return: Option<Type<'s>>,
     pub generics: GenericDefs<'s>,
-    pub errors: Vec<ConcreteType<'s>>,
+    pub errors: Vec<Item<'s>>,
 }
 
 #[derive(Debug, Clone)]
@@ -243,11 +243,13 @@ pub enum AsmOp<'s> {
     LoadSystemItem { id: Either<&'s str, AsmId> },
     Access { id: Either<Item<'s>, u32> },
     GetType,
-    Call,
+    Call { which: usize },
     SystemCall { id: Either<&'s str, AsmId> },
     Return,
     Swap { with: usize },
+    Pull { which: usize },
     Pop { count: usize, offset: usize },
+    Copy { which: usize },
     Jump { to: Either<&'s str, usize>, check: Option<bool> },
 }
 
@@ -288,13 +290,13 @@ pub enum Declaration<'s> {
         sigs: Vec<(&'s str, Signature<'s>)>
     },
     Implementation {
-        of: ConcreteType<'s>,
-        r#for: Option<ConcreteType<'s>>,
+        of: ProtocolType<'s>,
+        r#for: Option<Item<'s>>,
         fncs: Vec<(&'s str, Closure<'s>)>,
     },
     Function {
-        of: Option<ConcreteType<'s>>,
-        r#impl: Option<ConcreteType<'s>>,
+        of: Option<Item<'s>>,
+        r#impl: Option<ProtocolType<'s>>,
         name: &'s str,
         closure: Closure<'s>,
     },

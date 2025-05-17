@@ -28,11 +28,13 @@ pub enum Op {
     LoadSystemItem { id: Id },
     Access { field: u32 },
     GetType,
-    Call,
+    Call { which: usize },
     SystemCall { id: Id },
     Return,
     Swap { with: usize },
+    Pull { which: usize },
     Pop { count: usize, offset: usize },
+    Copy { which: usize },
     Jump { to: usize, check: Option<bool> },
 }
 
@@ -381,8 +383,8 @@ impl FunctionScope {
                 let top_obj = &vm.memory[vm.stack[0]];
                 vm.push_new(Object::System(SystemObj::Type(top_obj.get_type())));
             },
-            Op::Call => {
-                match &vm.memory[vm.stack[0]] {
+            Op::Call { which } => {
+                match &vm.memory[vm.stack[*which]] {
                     Object::Function(func) => res = ControlFlow::Continue(Some(FunctionScope::new(func.clone()))),
                     _ => panic!("cant call non functions")
                 }
@@ -391,7 +393,7 @@ impl FunctionScope {
                 assert_eq!(id.space, None);
                 match id.item {
                     0 => panic!("panic."),
-                    1 => print!("{}", match &vm.memory[vm.stack[0]] {
+                    1 => println!("{}", match &vm.memory[vm.stack[0]] {
                         Object::Fundamental(ConstItem::String(s)) => s,
                         _ => panic!()
                     }),
@@ -404,8 +406,18 @@ impl FunctionScope {
             Op::Swap { with } => {
                 vm.stack.swap(*with);
             },
+            Op::Pull { which } => {
+                vm.stack.pull(*which)
+            },
             Op::Pop { offset, count } => {
-                vm.stack.pop_many(*offset, *count)
+                for popped in vm.stack.pop_many(*offset, *count) {
+                    vm.memory.dereg_ref(popped);
+                };
+            },
+            Op::Copy { which } => {
+                let optr = vm.stack[*which];
+                vm.memory.reg_ref(optr);
+                vm.stack.push(optr);
             },
             Op::Jump { to, check} => {
                 if let Some(expected) = check {
@@ -450,15 +462,14 @@ impl Stack {
         let len = self.inner.len();
         self.inner.swap(len-1, len-1-with)
     }
+    
+    pub fn pull(&mut self, which: usize) {
+        let item = self.inner.remove(self.inner.len()-1-which);
+        self.inner.push(item);
+    }
 
-    pub fn pop_many(&mut self, offset: usize, count: usize) {
-        let end = offset+count;
-
-        // maybe do not alloc an entire vec... somehow?
-        let mut new = (&self.inner[..self.inner.len()-end]).to_vec();
-        new.copy_from_slice(&self.inner[self.inner.len()-offset ..]);
-
-        self.inner = new
+    pub fn pop_many(&mut self, offset: usize, count: usize) -> impl Iterator<Item = OPtr> + use<'_> {
+        self.inner.drain(self.inner.len()-count-offset .. self.inner.len()-offset)
     }
 }
 

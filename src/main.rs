@@ -1,3 +1,5 @@
+#![feature(let_chains)]
+
 use crate::compiler::{Compiler, CrateSource, Path};
 
 pub mod parser;
@@ -14,12 +16,25 @@ asm {
     return;
 };
 
+fnc always_true || -> %bool {
+    true
+};
+
+fnc always_false || -> %bool {
+    false
+};
+
 fnc entry || {
-    println("Hello, Nolia!");
-    
-    #if 5!eq(3)!not() {
-        println("succeeded block test");
-        repeat;
+    println("hello");
+
+    #if always_true() {
+        println("this checks out!");
+    };
+
+    #if always_false() {
+        println("uh?");
+    } else {
+        println("this is too :sunglasses:");
     };
 };
 "#
@@ -36,11 +51,11 @@ fnc entry || {
         }
     );
     
-    println!("{compiler:#?}");
-
+    // println!("{compiler:#?}");  // todo make actually readable IR display impl
+    
     let (crates, entry_func) = compiler.compile(Some(path!(example @ entry))).unwrap();
 
-    // println!("{crates:#?}");  // todo make actually readable IR display impl
+    println!("{crates:#?}");
     
     let mut vm = vm::Vm::default();
 
