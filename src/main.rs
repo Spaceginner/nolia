@@ -1,6 +1,7 @@
 #![feature(let_chains)]
 
-use crate::compiler::{Compiler, CrateSource, Path};
+use compiler::lcr::Path;
+use crate::compiler::{Compiler, CrateSource};
 
 pub mod parser;
 mod vm;

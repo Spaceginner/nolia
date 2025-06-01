@@ -337,21 +337,21 @@ AsmPos: usize = LiteralIntegerRaw => match <> {
 }.unwrap();
 
 AsmOp: AsmOp<'input> = {
-    "pack" <r#type:Either<Item, (AsmId AsmPos)>> => AsmOp::Pack {<>},
-    "loaditem" <item:Either<LiteralExpression, AsmId>> => AsmOp::LoadConstItem {<>},
-    "loadfunc" <func:Either<Item, AsmId>> => AsmOp::LoadFunction {<>},
-    "loadimpl" <of:Either<Item, (AsmId AsmU32)>> => AsmOp::LoadImplementation {<>},
-    "loadsysitem" <id:Either<Ident, AsmId>> => AsmOp::LoadSystemItem {<>},
-    "access" <id:Either<Item, AsmU32>> => AsmOp::Access {<>},
+    "pack" <r#type:Either<(AsmId AsmPos), Item>> => AsmOp::Pack {<>},
+    "loaditem" <item:Either<AsmId, LiteralExpression>> => AsmOp::LoadConstItem {<>},
+    "loadfunc" <func:Either<AsmId, Item>> => AsmOp::LoadFunction {<>},
+    "loadimpl" <of:Either<(AsmId AsmU32), Item>> => AsmOp::LoadImplementation {<>},
+    "loadsysitem" <id:Either<AsmId, Ident>> => AsmOp::LoadSystemItem {<>},
+    "access" <id:Either<AsmU32, Item>> => AsmOp::Access {<>},
     "gettype" => AsmOp::GetType,
     "call" <which:AsmPos> => AsmOp::Call {<>},
-    "syscall" <id:Either<Ident, AsmId>> => AsmOp::SystemCall {<>},
+    "syscall" <id:Either<AsmId, Ident>> => AsmOp::SystemCall {<>},
     "return" => AsmOp::Return,
     "swap" <with:AsmPos> => AsmOp::Swap {<>},
     "pull" <which:AsmPos> => AsmOp::Pull {<>},
     "pop" <count:AsmPos> <offset:AsmPos> => AsmOp::Pop {<>},
     "copy" <count:AsmPos> <offset:AsmPos> => AsmOp::Copy {<>},
-    "jump" <to:Either<Label, AsmPos>> <check:LiteralBool?> => AsmOp::Jump {<>},
+    "jump" <to:Either<AsmPos, Label>> <check:LiteralBool?> => AsmOp::Jump {<>},
 };
 AsmInstruction: AsmInstruction<'input> = <label:Label?> <op:AsmOp> => AsmInstruction {<>};
 AsmBlock: AsmBlock<'input> = "asm" "{" <instrs:(<AsmInstruction> ";")*> "}" => AsmBlock {<>};

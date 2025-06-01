@@ -241,21 +241,21 @@ pub struct AsmId {
 
 #[derive(Debug, Clone)]
 pub enum AsmOp<'s> {
-    Pack { r#type: Either<Item<'s>, (AsmId, usize)> },
-    LoadConstItem { item: Either<LiteralExpression, AsmId> },
-    LoadFunction { func: Either<Item<'s>, AsmId> },
-    LoadImplementation { of: Either<Item<'s>, (AsmId, u32)> },
-    LoadSystemItem { id: Either<&'s str, AsmId> },
-    Access { id: Either<Item<'s>, u32> },
+    Pack { r#type: Either<(AsmId, usize), Item<'s>> },
+    LoadConstItem { item: Either<AsmId, LiteralExpression> },
+    LoadFunction { func: Either<AsmId, Item<'s>> },
+    LoadImplementation { of: Either<(AsmId, u32), Item<'s>> },
+    LoadSystemItem { id: Either<AsmId, &'s str> },
+    Access { id: Either<u32, Item<'s>> },
     GetType,
     Call { which: usize },
-    SystemCall { id: Either<&'s str, AsmId> },
+    SystemCall { id: Either<AsmId, &'s str> },
     Return,
     Swap { with: usize },
     Pull { which: usize },
     Pop { count: usize, offset: usize },
     Copy { count: usize, offset: usize },
-    Jump { to: Either<&'s str, usize>, check: Option<bool> },
+    Jump { to: Either<usize, &'s str>, check: Option<bool> },
 }
 
 #[derive(Debug, Clone)]
