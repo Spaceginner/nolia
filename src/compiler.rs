@@ -166,7 +166,7 @@ impl TypeRef {
 
 #[derive(Debug, Clone)]
 struct FunctionType {
-    pub captures: Vec<TypeRef>,
+    pub captures: Vec<(Box<str>, TypeRef)>,
     pub r#return: TypeRef,
     pub generics: GenericDefs,
     pub errors: Vec<ConcreteTypeId>,
@@ -216,10 +216,12 @@ enum ActionInstruction {
 
 #[derive(Debug, Clone)]
 enum LiteralInteger {
+    I8(i8),
     I16(i16),
     I32(i32),
     I64(i64),
     I128(i128),
+    U8(u8),
     U16(u16),
     U32(u32),
     U64(u64),
@@ -230,10 +232,12 @@ enum LiteralInteger {
 impl From<ast::LiteralInteger> for LiteralInteger {
     fn from(value: ast::LiteralInteger) -> Self {
         match value {
+            ast::LiteralInteger::I8(n) => Self::I8(n),
             ast::LiteralInteger::I16(n) => Self::I16(n),
             ast::LiteralInteger::I32(n) => Self::I32(n),
             ast::LiteralInteger::I64(n) => Self::I64(n),
             ast::LiteralInteger::I128(n) => Self::I128(n),
+            ast::LiteralInteger::U8(n) => Self::U8(n),
             ast::LiteralInteger::U16(n) => Self::U16(n),
             ast::LiteralInteger::U32(n) => Self::U32(n),
             ast::LiteralInteger::U64(n) => Self::U64(n),
@@ -246,10 +250,12 @@ impl From<ast::LiteralInteger> for LiteralInteger {
 impl From<LiteralInteger> for vm::Integer {
     fn from(int: LiteralInteger) -> Self {
         match int {
+            LiteralInteger::I8(n) => vm::Integer::I8(n),
             LiteralInteger::I16(n) => vm::Integer::I16(n),
             LiteralInteger::I32(n) => vm::Integer::I32(n),
             LiteralInteger::I64(n) => vm::Integer::I64(n),
             LiteralInteger::I128(n) => vm::Integer::I128(n),
+            LiteralInteger::U8(n) => vm::Integer::U8(n),
             LiteralInteger::U16(n) => vm::Integer::U16(n),
             LiteralInteger::U32(n) => vm::Integer::U32(n),
             LiteralInteger::U64(n) => vm::Integer::U64(n),
@@ -323,6 +329,9 @@ enum StatementInstruction {
     },
     Throw {
         error: SBlock,
+    },
+    VmDebug  {
+        dcode: u32,
     },
 }
 
@@ -403,6 +412,20 @@ impl From<AsmId> for vm::Id {
 }
 
 
+impl From<AsmId> for vm::SysCallId {
+    fn from(asm_id: AsmId) -> Self {
+        Self::try_from(vm::Id::from(asm_id)).unwrap()
+    }
+}
+
+
+impl From<AsmId> for vm::SysItemId {
+    fn from(asm_id: AsmId) -> Self {
+        Self::try_from(vm::Id::from(asm_id)).unwrap()
+    }
+}
+
+
 impl From<usize> for vm::Id {
     fn from(item: usize) -> Self {
         Self { space: None, item: item.try_into().unwrap() }
@@ -426,7 +449,7 @@ enum AsmOp {
     Swap { with: usize },
     Pull { which: usize },
     Pop { count: usize, offset: usize },
-    Copy { which: usize },
+    Copy { count: usize, offset: usize },
     Jump { to: Either<Box<str>, usize>, check: Option<bool> },
 }
 
@@ -540,10 +563,8 @@ impl Compiler {
                         assert!(r#impl.is_none(), "impls not supported");
                         assert!(of.is_none(), "methods not supported");
 
-                        eprintln!("FIXME WARNING - CAPTURES IN FUNCTION SIGNATURES IGNORED (MAKE SYNTAX REPR BETTER)");
-
                         let f_type = FunctionType {
-                            captures: closure.sig.captures.into_iter().map(|c| transform_type(c.r#type)).collect(),
+                            captures: closure.sig.captures.into_iter().map(|c| (c.name.into(), transform_type(c.r#type))).collect(),
                             r#return: closure.sig.r#return.map(transform_type).unwrap_or(TypeRef::Nothing),
                             generics: closure.sig.generics.defs.into_iter().map(|def| (def.name.into(), def.constraint.map(transform_type))).collect(),
                             errors: closure.sig.errors.into_iter().map(|i| transform_item(i).into()).collect(),
@@ -594,6 +615,8 @@ impl Compiler {
                                                         Instruction::DoStatement(StatementInstruction::Throw {
                                                             error: transform_expr(error, tt, timi, ti)
                                                         }),
+                                                    ast::Statement::VmDebug { dcode } =>
+                                                        Instruction::DoStatement(StatementInstruction::VmDebug { dcode })
                                                 })
                                             }).collect();
 
@@ -792,7 +815,7 @@ impl Compiler {
                                                 ast::AsmOp::Swap { with } => AsmOp::Swap { with },
                                                 ast::AsmOp::Pull { which } => AsmOp::Pull { which },
                                                 ast::AsmOp::Pop { count, offset } => AsmOp::Pop { count, offset },
-                                                ast::AsmOp::Copy { which } => AsmOp::Copy { which },
+                                                ast::AsmOp::Copy { count, offset } => AsmOp::Copy { count, offset },
                                                 ast::AsmOp::Jump { to, check } =>
                                                     AsmOp::Jump {
                                                         to: to.map_left(|label| label.into()),
@@ -833,17 +856,21 @@ impl Compiler {
         );
     }
 
-    // xxx should be refactored back
     fn lit_type(lit: &LiteralValue) -> PrimitiveType {
         match lit {
-            LiteralValue::Integer(LiteralInteger::I16(_)) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Word },
-            LiteralValue::Integer(LiteralInteger::I32(_)) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::DWord },
-            LiteralValue::Integer(LiteralInteger::I64(_)) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::QWord },
-            LiteralValue::Integer(LiteralInteger::I128(_)) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::OWord },
-            LiteralValue::Integer(LiteralInteger::U16(_)) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Word },
-            LiteralValue::Integer(LiteralInteger::U32(_)) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::DWord },
-            LiteralValue::Integer(LiteralInteger::U64(_)) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::QWord },
-            LiteralValue::Integer(LiteralInteger::U128(_)) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::OWord },
+            LiteralValue::Integer(n) =>
+                match n {
+                    LiteralInteger::I8(_) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Byte },
+                    LiteralInteger::I16(_) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Word },
+                    LiteralInteger::I32(_) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::DWord },
+                    LiteralInteger::I64(_) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::QWord },
+                    LiteralInteger::I128(_) => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::OWord },
+                    LiteralInteger::U8(_) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Byte },
+                    LiteralInteger::U16(_) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Word },
+                    LiteralInteger::U32(_) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::DWord },
+                    LiteralInteger::U64(_) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::QWord },
+                    LiteralInteger::U128(_) => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::OWord },
+                },
             LiteralValue::Char(_) => PrimitiveType::Char,
             LiteralValue::String(_) => PrimitiveType::String,
             LiteralValue::Float(_) => PrimitiveType::Float,
@@ -920,7 +947,9 @@ impl Compiler {
                                                             item_map.get(&item.path)
                                                                 .map(|(_, t)| TypeRef::Primitive(t.clone()))
                                                                 .unwrap_or_else(|| {
-                                                                    TypeRef::Function(Box::new(func_map.get(&item.path).unwrap().1.clone()))
+                                                                    TypeRef::Function(Box::new(
+                                                                        func_map.get(&item.path)
+                                                                            .unwrap_or_else(|| panic!("no such var/item/func: {item:?}\n--- scopes ---\nvar: {var_scope:?}\nitems: {item_map:?}\nfuncs: {func_map:?})")).1.clone()))
                                                                 })
                                                         }
                                                     },
@@ -933,6 +962,7 @@ impl Compiler {
                                                             panic!("cant call non functions")
                                                         },
                                                     Instruction::DoStatement(StatementInstruction::Assignment { .. }) => TypeRef::Nothing,
+                                                    Instruction::DoStatement(StatementInstruction::VmDebug { .. }) => TypeRef::Nothing,
                                                     _ => unreachable!()
                                                 }
                                             }
@@ -947,22 +977,18 @@ impl Compiler {
                                         SBlockTag::Loop { code } =>
                                             if let TypeRef::Never = resolve_type(code, func_map, var_scope, item_map, rec) {
                                                 TypeRef::Never
-                                            } else {
-                                                if let SBlockTag::Simple { code, .. } = &*code.tag {
-                                                    for instr in code {
-                                                        match instr {
-                                                            Instruction::DoStatement(StatementInstruction::Escape { value: Some(value), .. }) =>
-                                                                return resolve_type(value, func_map, var_scope, item_map, rec),
-                                                            _ => {},
-                                                        };
+                                            } else if let SBlockTag::Simple { code, .. } = &*code.tag {
+                                                for instr in code {
+                                                    if let Instruction::DoStatement(StatementInstruction::Escape { value: Some(value), .. }) = instr {
+                                                        return resolve_type(value, func_map, var_scope, item_map, rec)
                                                     };
-                                                    TypeRef::Never
-                                                } else {
-                                                    panic!("uh oh")
-                                                }
+                                                };
+                                                TypeRef::Never
+                                            } else {
+                                                panic!("uh oh")
                                             },
-                                        SBlockTag::While { code, .. }
-                                        | SBlockTag::Over { code, .. } =>
+                                        SBlockTag::While {  .. }
+                                        | SBlockTag::Over { .. } =>
                                             TypeRef::Nothing,
                                     }
                                 }
@@ -980,10 +1006,11 @@ impl Compiler {
                                     match instr {
                                         Instruction::DoBlock(block) =>
                                             compile_s_block(block, this_instr_at, var_scope, label_scope, func_map, item_map, items),
-                                        Instruction::LoadLiteral(lit) =>
+                                        Instruction::LoadLiteral(lit) => {
+                                            var_scope.1 += 1;
                                             vec![match lit {
-                                                LiteralValue::Bool(bool) => vm::Op::LoadSystemItem { id: (bool as usize).into() },
-                                                LiteralValue::Void => vm::Op::LoadSystemItem { id: 2.into() },
+                                                LiteralValue::Bool(bool) => vm::Op::LoadSystemItem { id: if bool { vm::SysItemId::True } else { vm::SysItemId::False } },
+                                                LiteralValue::Void => vm::Op::LoadSystemItem { id: vm::SysItemId::Void },
                                                 lit => vm::Op::LoadConstItem {
                                                     id: {
                                                         let id = items.len();
@@ -991,7 +1018,8 @@ impl Compiler {
                                                         id.into()
                                                     },
                                                 },
-                                            }],
+                                            }]
+                                        },
                                         Instruction::DoAction(ActionInstruction::Access { of, field }) => todo!("fields access not supported"),
                                         Instruction::DoAction(ActionInstruction::Call { what, args }) => {
                                             if let TypeRef::Function(func) = resolve_type(&what, func_map, var_scope, item_map, false) {
@@ -1002,7 +1030,7 @@ impl Compiler {
                                                     panic!("function expected different number of arguments");
                                                 };
 
-                                                if !args.iter().map(|arg| resolve_type(arg, func_map, var_scope, item_map, false)).zip(captures.into_iter()).all(|(arg, cap)| arg.within(&cap)) {
+                                                if !args.iter().map(|arg| resolve_type(arg, func_map, var_scope, item_map, false)).zip(captures.into_iter()).all(|(arg, (_, cap))| arg.within(&cap)) {
                                                     panic!("some args have mismatched types");
                                                 };
 
@@ -1015,6 +1043,10 @@ impl Compiler {
                                                     offset += arg_code.len();
                                                     args_code.append(&mut arg_code);
                                                 };
+                                                
+                                                let ret_count = if r#return.within(&TypeRef::Nothing) { 0 } else { 1 };
+                                                
+                                                var_scope.1 -= arg_count + 1 - ret_count;
 
                                                 [
                                                     get_func,
@@ -1023,7 +1055,7 @@ impl Compiler {
                                                         vm::Op::Call { which: arg_count },
                                                         vm::Op::Pop {
                                                             count: arg_count + 1,
-                                                            offset: if let TypeRef::Nothing = r#return { 0 } else { 1 },
+                                                            offset: ret_count,
                                                         },
                                                     ]
                                                 ].concat()
@@ -1035,11 +1067,11 @@ impl Compiler {
                                         Instruction::DoAction(ActionInstruction::Load { item }) =>  {
                                             if let Some(var) = item.var.as_ref()
                                                 && let Some(&(i, _)) = var_scope.0.get(var) {
-                                                // todo remove clone
-                                                let cur_top = var_scope.0.iter().find(|(_, &(i, _))| i == var_scope.1).unwrap().0.clone();
-                                                var_scope.0.get_mut(&cur_top).unwrap().0 = i;
-                                                vec![vm::Op::Copy { which: var_scope.1-i }]
+                                                let code = vec![vm::Op::Copy { offset: var_scope.1-i-1, count: 1 }];
+                                                var_scope.1 += 1;
+                                                code
                                             } else {
+                                                var_scope.1 += 1;
                                                 assert!(item.path.crate_.is_none());
                                                 if let Some((i, _)) = item_map.get(&item.path) {
                                                     vec![vm::Op::LoadConstItem { id: (*i).into() }]
@@ -1057,6 +1089,19 @@ impl Compiler {
                                         Instruction::DoStatement(StatementInstruction::Escape { label, value }) => todo!(),
                                         Instruction::DoStatement(StatementInstruction::Return { value }) => todo!(),
                                         Instruction::DoStatement(StatementInstruction::Throw { error }) => todo!("exceptions are not supported"),
+                                        Instruction::DoStatement(StatementInstruction::VmDebug { dcode }) =>
+                                            vec![
+                                                vm::Op::LoadConstItem {
+                                                    id: {
+                                                        let id = items.len();
+                                                        items.push(vm::ConstItem::Integer(vm::Integer::U32(dcode)));
+                                                        id.into()
+                                                    },
+                                                },
+                                                vm::Op::SystemCall {
+                                                    id: vm::SysCallId::VmDebug,
+                                                },
+                                            ],
                                     }
                                 }
 
@@ -1081,7 +1126,6 @@ impl Compiler {
                                                     };
 
                                                     var_scope.0.insert(name.clone(), (var_scope.1+1, r#type.clone()));
-                                                    var_scope.1 += 1;
 
                                                     if let Some(val) = default.take() {
                                                         let def_code = compile_s_block(val, code_offset, var_scope, label_scope, func_map, item_map, items);
@@ -1089,7 +1133,8 @@ impl Compiler {
                                                         def_code
                                                     } else {
                                                         code_offset += 1;
-                                                        vec![vm::Op::LoadSystemItem { id: 2.into() }]  // fixme soft code this
+                                                        var_scope.1 += 1;
+                                                        vec![vm::Op::LoadSystemItem { id: vm::SysItemId::Void }]
                                                     }
                                                 })
                                                 .reduce(|mut a, mut b| { a.append(&mut b); a })
@@ -1116,6 +1161,7 @@ impl Compiler {
                                                     let mut code = compile_instruction(instr, starts_at, starts_at + offset, var_scope, label_scope, func_map, item_map, items);
                                                     offset += code.len();
                                                     if ret_something && (closed || i != last_instr_i) {
+                                                        var_scope.1 -= 1;
                                                         code.push(vm::Op::Pop { count: 1, offset: 0 });
                                                     };
                                                     code
@@ -1144,10 +1190,9 @@ impl Compiler {
                                             [init_code, main_code, deinit_code].concat()
                                         },
                                         SBlockTag::Condition { code, check, otherwise } => {
-                                            if let Some(b) = otherwise.as_ref() {
-                                                if !resolve_type(b, func_map, var_scope, item_map, false).within(&self_type) {
+                                            if let Some(b) = otherwise.as_ref()
+                                                && !resolve_type(b, func_map, var_scope, item_map, false).within(&self_type) {
                                                     panic!("branch is not of the same return type");
-                                                };
                                             };
 
                                             if !resolve_type(&check, func_map, var_scope, item_map, false).within(&TypeRef::Primitive(PrimitiveType::Bool)) {
@@ -1155,30 +1200,34 @@ impl Compiler {
                                             };
 
                                             let check_code = compile_s_block(check, starts_at, var_scope, label_scope, func_map, item_map, items);
-
-                                            let main_pos = starts_at + check_code.len() + 2;
+                                            var_scope.1 -= 1;
+                                            
+                                            let main_pos = starts_at + check_code.len() + 3;
+                                            // let mut otherwise_var_scope = var_scope.clone();
                                             let main_code = compile_s_block(code, main_pos, var_scope, label_scope, func_map, item_map, items);
                                             let after_main_pos = main_pos + main_code.len() + 1;
 
-                                            let otherwise_code = otherwise.map(|b| compile_s_block(b, after_main_pos, var_scope, label_scope, func_map, item_map, items));
-                                            let after_otherwise_pos = after_main_pos + otherwise_code.as_ref().map_or(0, |c| c.len()) + 2;
+                                            let ret_count = if self_type.within(&TypeRef::Nothing) { 0 } else { 1 };
+                                            var_scope.1 -= ret_count;  // to accommodate for return val of main_code
+                                            let otherwise_code = otherwise.map(|b| compile_s_block(b, after_main_pos + 1, var_scope, label_scope, func_map, item_map, items));
 
                                             if let Some(otherwise) = otherwise_code {
+                                                let after_otherwise_pos = after_main_pos + otherwise.len() + 1;
                                                 [
                                                     check_code,
                                                     vec![
                                                         vm::Op::Jump {
-                                                            to: main_pos,
+                                                            to: main_pos - 1,
                                                             check: Some(true),
                                                         },
                                                         vm::Op::Jump {
-                                                            to: after_main_pos + 1,
+                                                            to: after_main_pos,
                                                             check: None,
                                                         },
                                                         vm::Op::Pop {
                                                             count: 1,
                                                             offset: 0,
-                                                        }
+                                                        },
                                                     ],
                                                     main_code,
                                                     vec![
@@ -1189,7 +1238,7 @@ impl Compiler {
                                                         vm::Op::Pop {
                                                             count: 1,
                                                             offset: 0,
-                                                        }
+                                                        },
                                                     ],
                                                     otherwise,
                                                 ].concat()
@@ -1201,6 +1250,10 @@ impl Compiler {
                                                         vm::Op::Jump {
                                                             to: main_pos,
                                                             check: Some(true),
+                                                        },
+                                                        vm::Op::Pop {
+                                                            count: 1,
+                                                            offset: 0,
                                                         },
                                                         vm::Op::Jump {
                                                             to: after_main_pos,
@@ -1246,6 +1299,7 @@ impl Compiler {
                                                 let main_code = compile_s_block(code, starts_at, var_scope, label_scope, func_map, item_map, items);
                                                 let check_pos = main_pos + main_code.len();
                                                 let check_code = compile_s_block(check, check_pos, var_scope, label_scope, func_map, item_map, items);
+                                                var_scope.1 -= 1;
 
                                                 [
                                                     vec![
@@ -1273,6 +1327,7 @@ impl Compiler {
                                                 ].concat()
                                             } else {
                                                 let check_code = compile_s_block(check, starts_at, var_scope, label_scope, func_map, item_map, items);
+                                                var_scope.1 -= 1;
                                                 let main_pos = starts_at + check_code.len() + 2;
                                                 let main_code = compile_s_block(code, main_pos, var_scope, label_scope, func_map, item_map, items);
                                                 let loop_end_pos = main_pos + main_code.len() + 2;
@@ -1304,22 +1359,49 @@ impl Compiler {
                                         SBlockTag::Over { .. } => todo!(),
                                     }
                                 }
+                                
+                                let arg_count = func.r#type.captures.len();
+                                let init_code = vec![
+                                    vm::Op::Copy {
+                                        count: arg_count,
+                                        offset: 0,
+                                    },
+                                ];
+                                
+                                let mut var_scope =
+                                    (
+                                        func.r#type.captures.into_iter().enumerate()
+                                            .map(|(i, (name, r#type))| (name, (i, r#type)))
+                                            .collect(),
+                                        arg_count,
+                                    );
 
-                                if !resolve_type(&s_block, &func_map, &(HashMap::new(), 0), &item_map, false).within(&func.r#type.r#return) {
+                                if !resolve_type(&s_block, &func_map, &var_scope, &item_map, false).within(&func.r#type.r#return) {
                                     panic!("return value is of wrong return type");
                                 };
 
-                                let mut code = compile_s_block(
+                                let code = compile_s_block(
                                     s_block,
-                                    0,
-                                    &mut (HashMap::new(), 0),
+                                    1,
+                                    &mut var_scope,
                                     &mut HashMap::new(),
                                     &func_map,
                                     &item_map,
                                     &mut items,
                                 );
-                                code.push(vm::Op::Return);
-                                code
+                                
+                                let deinit_code = vec![
+                                    vm::Op::Pop {
+                                        count: arg_count,
+                                        offset: if func.r#type.r#return.within(&TypeRef::Nothing) { 0 } else { 1 }
+                                    },
+                                ];
+                                
+                                [
+                                    init_code,
+                                    code,
+                                    deinit_code,
+                                ].concat()
                             },
                             Block::Asm(asm) => {
                                 let label_store = asm.code.iter().enumerate()
@@ -1355,13 +1437,12 @@ impl Compiler {
                                             id: match id {
                                                 Either::Right(id) => id.into(),
                                                 Either::Left(name) =>
-                                                    // fixme soft-code these values (remove magicness)
                                                     match &name[..] {
-                                                        "false" => 0,
-                                                        "true" => 1,
-                                                        "void" => 2,
+                                                        "false" => vm::SysItemId::False,
+                                                        "true" => vm::SysItemId::True,
+                                                        "void" => vm::SysItemId::Void,
                                                         _ => panic!("unknown sys item")
-                                                    }.into()
+                                                    }
                                             },
                                         },
                                     AsmOp::Access { .. } => { todo!("access instr is not supported") }
@@ -1372,19 +1453,19 @@ impl Compiler {
                                             id: match id {
                                                 Either::Right(id) => id.into(),
                                                 Either::Left(name) =>
-                                                    // fixme soft-code these values (remove magicness)
                                                     match &name[..] {
-                                                        "panic" => 0,
-                                                        "println" => 1,
+                                                        "panic" => vm::SysCallId::Panic,
+                                                        "println" => vm::SysCallId::PrintLine,
+                                                        "vmdebug" => vm::SysCallId::VmDebug,
                                                         _ => panic!("unknown sys call")
-                                                    }.into(),
+                                                    }
                                             },
                                         },
                                     AsmOp::Return => vm::Op::Return,
                                     AsmOp::Swap { with } => vm::Op::Swap { with },
                                     AsmOp::Pull { which } => vm::Op::Pull { which },
                                     AsmOp::Pop { count, offset } => vm::Op::Pop { count, offset },
-                                    AsmOp::Copy { which } => vm::Op::Copy { which },
+                                    AsmOp::Copy { count, offset } => vm::Op::Copy { count, offset },
                                     AsmOp::Jump { to, check } =>
                                         vm::Op::Jump {
                                             check,
@@ -1401,10 +1482,9 @@ impl Compiler {
 
             let crate_id = vm::CrateId::new(&crate_id_raw.0, crate_id_raw.1);
 
-            if let Some(path) = entry_func.as_ref() {
-                if path.crate_.as_ref().unwrap() == &crate_id_raw.0 {
+            if let Some(path) = entry_func.as_ref()
+                && path.crate_.as_ref().unwrap() == &crate_id_raw.0 {
                     entry_func_id = Some((crate_id, func_map[&path.clone().noc()].0 as u32));
-                };
             };
 
             vm::CrateDeclaration {

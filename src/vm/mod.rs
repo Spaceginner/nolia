@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::num::NonZero;
 use std::ops::{ControlFlow, Index, Range, RangeTo};
 use crate::parser::ast;
@@ -20,21 +21,78 @@ impl From<ast::AsmId> for Id {
 
 
 #[derive(Debug, Clone, Copy)]
+pub enum SysCallId {
+    Provided {
+        space: NonZero<u32>,
+        item: u32,
+    },
+    Panic,
+    PrintLine,
+    VmDebug,
+}
+
+impl TryFrom<Id> for SysCallId {
+    type Error = ();
+
+    fn try_from(id: Id) -> Result<Self, Self::Error> {
+        Ok(match id {
+            Id { space: Some(space), item } => Self::Provided { space, item },
+            Id { space: Option::None, item } =>
+                match item {
+                    0 => Self::Panic,
+                    1 => Self::PrintLine,
+                    _ => Err(())?,
+                }
+        })
+    }
+}
+
+
+#[derive(Debug, Clone, Copy)]
+pub enum SysItemId {
+    Provided {
+        space: NonZero<u32>,
+        item: u32,
+    },
+    True,
+    False,
+    Void,
+}
+
+impl TryFrom<Id> for SysItemId {
+    type Error = ();
+
+    fn try_from(id: Id) -> Result<Self, Self::Error> {
+        Ok(match id {
+            Id { space: Some(space), item } => Self::Provided { space, item },
+            Id { space: Option::None, item } =>
+                match item {
+                    0 => Self::False,
+                    1 => Self::True,
+                    2 => Self::Void,
+                    _ => Err(())?,
+                }
+        })
+    }
+}
+
+
+#[derive(Debug, Clone, Copy)]
 pub enum Op {
     Pack { id: Id, count: usize },
     LoadConstItem { id: Id },
     LoadFunction { id: Id },
     LoadImplementation { id: Id, func: u32 },
-    LoadSystemItem { id: Id },
+    LoadSystemItem { id: SysItemId },
     Access { field: u32 },
     GetType,
     Call { which: usize },
-    SystemCall { id: Id },
+    SystemCall { id: SysCallId },
     Return,
     Swap { with: usize },
     Pull { which: usize },
     Pop { count: usize, offset: usize },
-    Copy { which: usize },
+    Copy { count: usize, offset: usize },
     Jump { to: usize, check: Option<bool> },
 }
 
@@ -61,12 +119,42 @@ pub enum Integer {
     U128(u128),
 }
 
+
+impl fmt::Display for Integer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::I8(n) => write!(f, "{n}"),
+            Self::I16(n) => write!(f, "{n}"),
+            Self::I32(n) => write!(f, "{n}"),
+            Self::I64(n) => write!(f, "{n}"),
+            Self::I128(n) => write!(f, "{n}"),
+            Self::U8(n) => write!(f, "{n}"),
+            Self::U16(n) => write!(f, "{n}"),
+            Self::U32(n) => write!(f, "{n}"),
+            Self::U64(n) => write!(f, "{n}"),
+            Self::U128(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+
 #[derive(Debug, Clone)]
 pub enum ConstItem {
     Integer(Integer),
     Float(f64),
     Char(char),
     String(String),
+}
+
+impl fmt::Display for ConstItem {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Integer(n) => write!(f, "{n}"),
+            Self::Float(f_) => write!(f, "{f_}"),
+            Self::Char(c) => write!(f, "{c}"),
+            Self::String(s) => write!(f, "{s}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -241,7 +329,7 @@ pub struct ObjectCell {
 
 // todo resolution of circular things
 #[derive(Debug, Default)]
-struct Memory {
+pub struct Memory {
     last_id: usize,
     cells: Vec<Option<ObjectCell>>,
 }
@@ -353,105 +441,124 @@ impl FunctionScope {
     }
 
     pub fn step(&mut self, vm: &mut Vm) -> FStep {
-        let mut res = ControlFlow::Continue(None);
-        let mut inc = true;
-        match &self.func.code[self.cur_instr] {
-            Op::Pack { id, count } => {
-                vm.push_new(Object::Constructed { id: *id, fields: vm.stack[..*count].to_vec() });
-            },
-            Op::LoadConstItem { id } => {
-                vm.push_new(Object::Fundamental(self.get_mod(*id, vm).items[id.item as usize].clone()));
-            },
-            Op::LoadFunction { id } => {
-                vm.push_new(Object::Function(self.get_mod(*id, vm).functions[id.item as usize].clone()));
-            },
-            Op::LoadImplementation { id, func } => {
-                let top_obj = &vm.memory[vm.stack[0]];
+        if let Some(&op) = self.func.code.get(self.cur_instr) {
+            let mut res = ControlFlow::Continue(None);
+            let mut inc = true;
+            match op {
+                Op::Pack { id, count } => {
+                    vm.push_new(Object::Constructed { id, fields: vm.stack[..count].to_vec() });
+                },
+                Op::LoadConstItem { id } => {
+                    vm.push_new(Object::Fundamental(self.get_mod(id, vm).items[id.item as usize].clone()));
+                },
+                Op::LoadFunction { id } => {
+                    vm.push_new(Object::Function(self.get_mod(id, vm).functions[id.item as usize].clone()));
+                },
+                Op::LoadImplementation { id, func } => {
+                    let top_obj = &vm.memory[vm.stack[0]];
 
-                vm.push_new(Object::Function(self.get_mod(*id, vm).implementations[&ImplId { of: id.item, r#for: top_obj.get_type() }].func[func].clone()));
-            },
-            Op::LoadSystemItem { id } => {
-                assert_eq!(id.space, None);
-                vm.push_new(match id.item {
-                    0 => Object::System(SystemObj::Bool(false)),
-                    1 => Object::System(SystemObj::Bool(true)),
-                    2 => Object::System(SystemObj::Void),
-                    _ => panic!("invalid id for system item"),
-                });
-            },
-            Op::Access { field } => {
-                let top_obj = &vm.memory[vm.stack[0]];
-                match top_obj {
-                    Object::Constructed { fields, .. } => {
-                        let field = fields[*field as usize];
-                        vm.memory.reg_ref(field);
-                        vm.stack.push(field);
-                    },
-                    _ => panic!("doesnt have any fields")
-                }
-            },
-            Op::GetType => {
-                let top_obj = &vm.memory[vm.stack[0]];
-                vm.push_new(Object::System(SystemObj::Type(top_obj.get_type())));
-            },
-            Op::Call { which } => {
-                match &vm.memory[vm.stack[*which]] {
-                    Object::Function(func) => res = ControlFlow::Continue(Some(FunctionScope::new(func.clone()))),
-                    _ => panic!("cant call non functions")
-                }
-            },
-            Op::SystemCall { id } => {
-                assert_eq!(id.space, None);
-                match id.item {
-                    0 => panic!("panic."),
-                    1 => println!("{}", match &vm.memory[vm.stack[0]] {
-                        Object::Fundamental(ConstItem::String(s)) => s,
-                        _ => panic!()
-                    }),
-                    _ => panic!("unknown syscall")
-                }
-            },
-            Op::Return => {
-                res = ControlFlow::Break(());
-            },
-            Op::Swap { with } => {
-                vm.stack.swap(*with);
-            },
-            Op::Pull { which } => {
-                vm.stack.pull(*which)
-            },
-            Op::Pop { offset, count } => {
-                for popped in vm.stack.pop_many(*offset, *count) {
-                    vm.memory.dereg_ref(popped);
-                };
-            },
-            Op::Copy { which } => {
-                let optr = vm.stack[*which];
-                vm.memory.reg_ref(optr);
-                vm.stack.push(optr);
-            },
-            Op::Jump { to, check} => {
-                if let Some(expected) = check {
-                    match &vm.memory[vm.stack[0]] {
-                        Object::System(SystemObj::Bool(b)) if b == expected => {
-                            self.cur_instr = *to;
-                            inc = false;
+                    vm.push_new(Object::Function(self.get_mod(id, vm).implementations[&ImplId { of: id.item, r#for: top_obj.get_type() }].func[&func].clone()));
+                },
+                Op::LoadSystemItem { id } => {
+                    vm.push_new(Object::System(match id {
+                        SysItemId::Provided { .. } => panic!("provided system items are not yet supported"),
+                        SysItemId::False => SystemObj::Bool(false),
+                        SysItemId::True => SystemObj::Bool(true),
+                        SysItemId::Void => SystemObj::Void,
+                    }));
+                },
+                Op::Access { field } => {
+                    let top_obj = &vm.memory[vm.stack[0]];
+                    match top_obj {
+                        Object::Constructed { fields, .. } => {
+                            let field = fields[field as usize];
+                            vm.memory.reg_ref(field);
+                            vm.stack.push(field);
                         },
-                        Object::System(SystemObj::Bool(..)) => {},
-                        _ => panic!("can check only with bools")
+                        _ => panic!("doesnt have any fields")
                     }
-                } else {
-                    self.cur_instr = *to;
-                    inc = false;
-                };
-            },
-        };
-        
-        if inc {
-            self.cur_instr += 1;
-        };
+                },
+                Op::GetType => {
+                    let top_obj = &vm.memory[vm.stack[0]];
+                    vm.push_new(Object::System(SystemObj::Type(top_obj.get_type())));
+                },
+                Op::Call { which } => {
+                    match &vm.memory[vm.stack[which]] {
+                        Object::Function(func) => res = ControlFlow::Continue(Some(FunctionScope::new(func.clone()))),
+                        _ => panic!("cant call non functions")
+                    }
+                },
+                Op::SystemCall { id } => {
+                    match id {
+                        SysCallId::Provided { .. } => panic!("provided syscalls are not yet supported"),
+                        SysCallId::PrintLine => {
+                            match &vm.memory[vm.stack[0]] {
+                                Object::Fundamental(ci) => println!("{ci}"),
+                                _ => panic!()
+                            };
+                        },
+                        SysCallId::Panic => {
+                            panic!("panic.");
+                        },
+                        SysCallId::VmDebug => {
+                            eprintln!("------------ DEBUG ------------");
+                            eprintln!("DCode: {}", match vm.memory[vm.stack[0]] {
+                                Object::Fundamental(ConstItem::Integer(Integer::U32(n))) => n,
+                                _ => 0,
+                            });
+                            eprintln!("{:#?}", vm.memory());
+                            eprintln!("{:?}", vm.stack());
+                            vm.memory.dereg_ref(vm.stack.pop());
+                        }
+                    }
+                },
+                Op::Return => {
+                    res = ControlFlow::Break(());
+                },
+                Op::Swap { with } => {
+                    vm.stack.swap(with);
+                },
+                Op::Pull { which } => {
+                    vm.stack.pull(which)
+                },
+                Op::Pop { offset, count } => {
+                    for popped in vm.stack.pop_many(offset, count) {
+                        vm.memory.dereg_ref(popped);
+                    };
+                },
+                Op::Copy { offset, count } => {
+                    // fixme remove the need of allocating a vec here
+                    let mut copy_chunk = vm.stack[offset..offset+count].to_vec();
+                    for &optr in copy_chunk.iter() {
+                        vm.memory.reg_ref(optr);
+                    };
+                    vm.stack.inner.append(&mut copy_chunk);
+                },
+                Op::Jump { to, check} => {
+                    if let Some(expected) = check {
+                        match &vm.memory[vm.stack[0]] {
+                            &Object::System(SystemObj::Bool(b)) if b == expected => {
+                                self.cur_instr = to;
+                                inc = false;
+                            },
+                            Object::System(SystemObj::Bool(..)) => {},
+                            obj => panic!("can check only with bools (got: {obj:?})")
+                        }
+                    } else {
+                        self.cur_instr = to;
+                        inc = false;
+                    };
+                },
+            };
 
-        res
+            if inc {
+                self.cur_instr += 1;
+            };
+
+            res
+        } else {
+            ControlFlow::Break(())
+        }
     }
 }
 
@@ -524,6 +631,14 @@ pub enum StepError {
 }
 
 impl Vm {
+    pub fn memory(&self) -> &Memory {
+        &self.memory
+    }
+    
+    pub fn stack(&self) -> &Stack {
+        &self.stack
+    }
+
     fn push_new(&mut self, obj: Object) {
         if let Object::Constructed { fields, .. } = &obj {
             for field in fields {
@@ -531,9 +646,9 @@ impl Vm {
             };
         };
 
+        // when allocating a new object, ref count of 0 is already "1 reference pointing"
         let optr = self.memory.alloc(obj);
-
-        self.memory.reg_ref(optr);
+        
         self.stack.push(optr);
     }
     

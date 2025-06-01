@@ -3,6 +3,13 @@ use either::Either;
 
 grammar;
 
+match {
+    r"\s*" => { },
+    r"//[^\n\r]*[\n\r]*" => { }, // // ...
+    r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/" => { },  // /* ... */
+    _
+}
+
 #[inline]
 Sep<T, S>: Vec<T> = {
     ((<T> S)* T)? => match <> {
@@ -115,7 +122,7 @@ LiteralIntegerRaw: (&'input str, &'input str) = {
     r"0x\s*[[:xdigit:]][[[:xdigit:]]_]*" => ("0x", <>[2..].trim()),
 };
 #[inline]
-LiteralIntegerSuffixSize: &'input str = { "16", "32", "64", "128" };
+LiteralIntegerSuffixSize: &'input str = r"\d[\d_]*";
 #[inline]
 LiteralIntegerSuffixSigness: &'input str = { "i", "u" };
 #[inline]
@@ -125,15 +132,17 @@ LiteralInteger: LiteralInteger = <sign:LiteralIntegerSign?> <int:LiteralIntegerR
     let sign = sign.unwrap_or("+");
     let int = (int.0, format!("{sign}{}", int.1));
     let parser = match kind {
-        ("i", "16") => |n, r| Ok::<_, std::num::ParseIntError>(LiteralInteger::I16(i16::from_str_radix(n, r)?)),
+        ("i", "8") => |n, r| Ok::<_, std::num::ParseIntError>(LiteralInteger::I8(i8::from_str_radix(n, r)?)),
+        ("i", "16") => |n, r| Ok(LiteralInteger::I16(i16::from_str_radix(n, r)?)),
         ("i", "32") => |n, r| Ok(LiteralInteger::I32(i32::from_str_radix(n, r)?)),
         ("i", "64") => |n, r| Ok(LiteralInteger::I64(i64::from_str_radix(n, r)?)),
         ("i", "128") => |n, r| Ok(LiteralInteger::I128(i128::from_str_radix(n, r)?)),
+        ("u", "8") => |n, r| Ok(LiteralInteger::U8(u8::from_str_radix(n, r)?)),
         ("u", "16") => |n, r| Ok(LiteralInteger::U16(u16::from_str_radix(n, r)?)),
         ("u", "32") => |n, r| Ok(LiteralInteger::U32(u32::from_str_radix(n, r)?)),
         ("u", "64") => |n, r| Ok(LiteralInteger::U64(u64::from_str_radix(n, r)?)),
         ("u", "128") => |n, r| Ok(LiteralInteger::U128(u128::from_str_radix(n, r)?)),
-        _ => unreachable!(),
+        _ => panic!(),
     };
 
     match int {
@@ -260,7 +269,7 @@ ConstructExpression: ConstructExpression<'input> = {
     // [a, b]
     "[" <vals:Comma<Expression>> "]" => ConstructExpression::Array {<>},
     // Type (( a: b ))
-    <what:Item> "((" <fields:Comma<Field>> "))" => ConstructExpression::Data {<>},
+    <what:Item> "[" <fields:Comma<Field>> "]" => ConstructExpression::Data {<>},
 };
 
 ActionExpression: ActionExpression<'input> = {
@@ -296,6 +305,7 @@ Statement: Statement<'input> = {
     "return" <value:Expression?> => Statement::Return {<>},
     // throw SomeError
     "throw" <error:Expression> => Statement::Throw {<>},
+    "vmdebug" <dcode:AsmU32> => Statement::VmDebug {<>},
 };
 
 pub InlineStatementBlock: StatementBlock<'input> = <code:Sep<Statement, ";">> <closed:";"?> =>
@@ -340,7 +350,8 @@ AsmOp: AsmOp<'input> = {
     "swap" <with:AsmPos> => AsmOp::Swap {<>},
     "pull" <which:AsmPos> => AsmOp::Pull {<>},
     "pop" <count:AsmPos> <offset:AsmPos> => AsmOp::Pop {<>},
-    "jump" <check:LiteralBool?> <to:Either<Ident, AsmPos>> => AsmOp::Jump {<>},
+    "copy" <count:AsmPos> <offset:AsmPos> => AsmOp::Copy {<>},
+    "jump" <to:Either<Label, AsmPos>> <check:LiteralBool?> => AsmOp::Jump {<>},
 };
 AsmInstruction: AsmInstruction<'input> = <label:Label?> <op:AsmOp> => AsmInstruction {<>};
 AsmBlock: AsmBlock<'input> = "asm" "{" <instrs:(<AsmInstruction> ";")*> "}" => AsmBlock {<>};
@@ -356,7 +367,7 @@ Declaration: Declaration<'input> = {
     // const LENGTH: Int = 1
     "const" <what:Capture> "=" <val:LiteralExpression> => Declaration::Const {<>},
     // data Foo (( bar: Int ))
-    "data" <name:Ident> "((" <fields:Comma<(<Ident> ":" <Type>)>> "))" => Declaration::Data {<>},
+    "data" <name:Ident> "{" <fields:Comma<(<Ident> ":" <Type>)>> "}" => Declaration::Data {<>},
     // proto Add<O, R> { fnc add |...|; }
     // proto [Add + Sub + Mul + Div + Display] Real { ... }
     "proto" <extends:OptDefault<("[" <SepReq<Item, "+">> "]")>> <name:Ident> <generics:GenericDefs> "{" <sigs:("fnc" <Ident> <Signature> ";")*> "}" => Declaration::Protocol {<>},
@@ -366,4 +377,4 @@ Declaration: Declaration<'input> = {
     "fnc" <of:("/" <Item>)?> <r#impl:("[" <ProtocolType> "]")?> <name:Ident> <closure:Closure> => Declaration::Function {<>},
 };
 
-pub Module: Module<'input> = <decls:(<Declaration> ";")*> => Module {<>};
+pub Module: Module<'input> = <decls:Declaration*> => Module {<>};

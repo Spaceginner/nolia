@@ -8,38 +8,8 @@ mod vm;
 mod compiler;
 
 fn main() {
-    let parsed = parser::ModuleParser::new().parse(
-r#"
-fnc println |s: %str|
-asm {
-    syscall println;
-    return;
-};
-
-fnc always_true || -> %bool {
-    true
-};
-
-fnc always_false || -> %bool {
-    false
-};
-
-fnc entry || {
-    println("hello");
-
-    #if always_true() {
-        println("this checks out!");
-    };
-
-    #if always_false() {
-        println("uh?");
-    } else {
-        println("this is too :sunglasses:");
-    };
-};
-"#
-    ).unwrap();
-    println!("{parsed:#?}");
+    let file = std::fs::read_to_string("test.nol").unwrap();
+    let parsed = parser::ModuleParser::new().parse(&file).unwrap();
     
     let mut compiler = Compiler::default();
 

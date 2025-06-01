@@ -124,10 +124,12 @@ pub enum BlockExpressionKind<'s> {
 
 #[derive(Debug, Clone)]
 pub enum LiteralInteger {
+    I8(i8),
     I16(i16),
     I32(i32),
     I64(i64),
     I128(i128),
+    U8(u8),
     U16(u16),
     U32(u32),
     U64(u64),
@@ -220,6 +222,9 @@ pub enum Statement<'s> {
     Throw {
         error: Expression<'s>,
     },
+    VmDebug {
+        dcode: u32,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -249,7 +254,7 @@ pub enum AsmOp<'s> {
     Swap { with: usize },
     Pull { which: usize },
     Pop { count: usize, offset: usize },
-    Copy { which: usize },
+    Copy { count: usize, offset: usize },
     Jump { to: Either<&'s str, usize>, check: Option<bool> },
 }
 
