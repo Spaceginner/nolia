@@ -36,7 +36,7 @@ impl From<ast::PrimitiveType> for lcr::PrimitiveType {
 
 
 impl From<lcr::Path> for lcr::ConcreteTypeId {
-    fn from(path: Path) -> Self {
+    fn from(path: lcr::Path) -> Self {
         Self { path }
     }
 }
