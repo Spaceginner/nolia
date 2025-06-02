@@ -124,7 +124,8 @@ fn compile_asm_func(
                     |name| match &name[..] {  // fixme soft-code syscall name matching
                         "panic" => vm::SysCallId::Panic,
                         "println" => vm::SysCallId::PrintLine,
-                        "vmdebug" => vm::SysCallId::VmDebug,
+                        "debug" => vm::SysCallId::Debug,
+                        "add" => vm::SysCallId::Add,
                         _ => panic!("unknown sys call")
                     }
                 )
@@ -237,7 +238,42 @@ fn compile_instruction(
         },
         lcr::Instruction::Construct(lcr::ConstructInstruction::Data { what, fields }) => todo!("datas are not supported"),
         lcr::Instruction::Construct(lcr::ConstructInstruction::Array { vals }) => todo!("arrays are not supported"),
-        lcr::Instruction::DoStatement(lcr::StatementInstruction::Assignment { what, to }) => todo!(),
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::Assignment { what, to }) => {
+            let exp_type = resolve_type(&what, func_map, var_scope, item_map);
+            let asg_type = resolve_type(&to, func_map, var_scope, item_map);
+
+            if !asg_type.within(&exp_type) {
+                panic!("wrong type when assigning");
+            };
+
+            if let lcr::SBlockTag::Simple { code, .. } = &*what.tag {
+                assert_eq!(code.len(), 1);
+                match &code[0] {
+                    lcr::Instruction::DoAction(lcr::ActionInstruction::Load { item, .. }) => {
+                        let replace_pos = var_scope.0[item.var.as_ref().unwrap()].0;
+
+                        let value = compile_s_block(to, this_instr_at, var_scope, label_scope, func_map, item_map, items);
+                        var_scope.1 -= 1;
+
+                        [
+                            value,
+                            vec![
+                                vm::Op::Swap {
+                                    with: var_scope.1 - replace_pos,
+                                },
+                                vm::Op::Pop {
+                                    count: 1,
+                                    offset: 0,
+                                },
+                            ]
+                        ].concat()
+                    },
+                    _ => todo!()  // todo support fields
+                }
+            } else {
+                panic!("cant assign to non-simple blocks")
+            }
+        },
         lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label }) => todo!(),
         lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { label, value }) => todo!(),
         lcr::Instruction::DoStatement(lcr::StatementInstruction::Return { value }) => todo!(),
@@ -252,7 +288,7 @@ fn compile_instruction(
                     },
                 },
                 vm::Op::SystemCall {
-                    id: vm::SysCallId::VmDebug,
+                    id: vm::SysCallId::Debug,
                 },
             ],
     }
@@ -273,22 +309,16 @@ fn compile_s_block(
         lcr::SBlockTag::Simple { code, mut decls, closed } => {
             let mut code_offset = 0;
             let init_code = decls.iter_mut()
-                .map(|lcr::Declaration { name, default, r#type }| {
+                .map(|lcr::Declaration { name, r#type }| {
                     if var_scope.0.contains_key(&name[..]) {
                         panic!("variable shadowing is forbidden");
                     };
 
-                    var_scope.0.insert(name.clone(), (var_scope.1 + 1, r#type.clone()));
+                    var_scope.0.insert(name.clone(), (var_scope.1, r#type.clone()));
 
-                    if let Some(val) = default.take() {
-                        let def_code = compile_s_block(val, code_offset, var_scope, label_scope, func_map, item_map, items);
-                        code_offset += def_code.len();
-                        def_code
-                    } else {
-                        code_offset += 1;
-                        var_scope.1 += 1;
-                        vec![vm::Op::LoadSystemItem { id: vm::SysItemId::Void }]
-                    }
+                    code_offset += 1;
+                    var_scope.1 += 1;
+                    vec![vm::Op::LoadSystemItem { id: vm::SysItemId::Void }]
                 })
                 .reduce(|mut a, mut b| {
                     a.append(&mut b);
@@ -327,23 +357,12 @@ fn compile_s_block(
                 })
                 .unwrap_or_else(|| vec![]);
 
-            let deinit_code = decls.iter()
-                .map(|lcr::Declaration { name, .. }| {
-                    let cur_i = var_scope.0[&name[..]].0;
-                    let cur_top = var_scope.0.iter()
-                        .find_map(
-                            |(name, &(pos, _))|
-                            (pos == var_scope.1).then_some(name.clone())
-                        ).unwrap();
-
-                    let pop_at = var_scope.1 - cur_i;
-                    var_scope.0.get_mut(&cur_top).unwrap().0 = cur_i;
-                    var_scope.0.remove(&name[..]);
-                    var_scope.1 -= 1;
-
-                    vm::Op::Pop { count: 1, offset: pop_at }
-                })
-                .collect();
+            let deinit_code = if decls.is_empty() { vec![] } else {
+                vec![vm::Op::Pop {
+                    count: decls.len(),
+                    offset: if self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 },
+                }]
+            };
 
             [init_code, main_code, deinit_code].concat()
         },

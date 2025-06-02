@@ -7,19 +7,26 @@ pub(super) fn resolve_type(
     var_scope: &(HashMap<Box<str>, (usize, lcr::TypeRef)>, usize),
     item_map: &HashMap<lcr::Path, (usize, lcr::PrimitiveType)>,
 ) -> lcr::TypeRef {
-    resolve_type_inner(s_block, func_map, var_scope, item_map, false)
+    resolve_type_inner(s_block, func_map, var_scope, &mut HashMap::new(), item_map, false)
 }
 
-fn resolve_type_inner(
-    s_block: &lcr::SBlock,
+fn resolve_type_inner<'b>(
+    s_block: &'b lcr::SBlock,
     func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>,
     var_scope: &(HashMap<Box<str>, (usize, lcr::TypeRef)>, usize),
+    temp_var_scope: &mut HashMap<&'b str, &'b lcr::TypeRef>,  // fixme merge with main var_scope
     item_map: &HashMap<lcr::Path, (usize, lcr::PrimitiveType)>,
     rec: bool,
 ) -> lcr::TypeRef {
     match &*s_block.tag {
         lcr::SBlockTag::Simple { code, closed, decls } => {
-            assert!(decls.is_empty(), "decls are not supported while type resolving");
+            for decl in decls {
+                temp_var_scope.insert(
+                    &decl.name,
+                    &decl.r#type,
+                );
+            };
+            
             if *closed || code.is_empty() {
                 lcr::TypeRef::Nothing
             } else {
@@ -31,7 +38,7 @@ fn resolve_type_inner(
                             lcr::TypeRef::Never,
                         lcr::Instruction::DoAction(lcr::ActionInstruction::Call { what, .. }) =>
                             if !rec
-                                && let lcr::TypeRef::Function(func) = resolve_type_inner(what, func_map, var_scope, item_map, rec)
+                                && let lcr::TypeRef::Function(func) = resolve_type_inner(what, func_map, var_scope, temp_var_scope, item_map, rec)
                                 && matches!(func.r#return, lcr::TypeRef::Never) {
                                 lcr::TypeRef::Never
                             } else {
@@ -48,27 +55,25 @@ fn resolve_type_inner(
                         lcr::TypeRef::Data(what.clone()),
                     lcr::Instruction::Construct(lcr::ConstructInstruction::Array { vals, .. }) =>
                     // fixme forbid arrays of nothing
-                        lcr::TypeRef::Array(vals.first().map(|b| Box::new(resolve_type_inner(b, func_map, var_scope, item_map, rec)))),
-                    lcr::Instruction::DoBlock(b) => resolve_type_inner(b, func_map, var_scope, item_map, true),
+                        lcr::TypeRef::Array(vals.first().map(|b| Box::new(resolve_type_inner(b, func_map, var_scope, temp_var_scope, item_map, rec)))),
+                    lcr::Instruction::DoBlock(b) => resolve_type_inner(b, func_map, var_scope, temp_var_scope, item_map, true),
                     lcr::Instruction::DoAction(lcr::ActionInstruction::Load { item }) => {
                         if let Some(var_name) = item.var.as_ref()
-                            && let Some((_, r#type)) = var_scope.0.get(var_name) {
+                            && let Some(r#type) = 
+                                temp_var_scope.get(&**var_name).copied()
+                                    .or_else(|| Some(&var_scope.0.get(var_name)?.1)) {
                             r#type.clone()
                         } else {
                             assert!(item.path.crate_.is_none());
-                            item_map.get(&item.path)
-                                .map(|(_, t)| lcr::TypeRef::Primitive(t.clone()))
-                                .unwrap_or_else(|| {
-                                    lcr::TypeRef::Function(Box::new(
-                                        func_map.get(&item.path)
-                                            .unwrap_or_else(|| panic!("no such var/item/func: {item:?}\n--- scopes ---\nvar: {var_scope:?}\nitems: {item_map:?}\nfuncs: {func_map:?})")).1.clone()))
-                                })
+                            item_map.get(&item.path).map(|(_, t)| lcr::TypeRef::Primitive(t.clone()))
+                                .or_else(|| Some(lcr::TypeRef::Function(Box::new(func_map.get(&item.path)?.1.clone()))))
+                                .unwrap_or_else(|| panic!("no such var/item/func: {item:?}\n--- scopes ---\nvar: {var_scope:?}\nitems: {item_map:?}\nfuncs: {func_map:?})"))
                         }
                     },
                     lcr::Instruction::DoAction(lcr::ActionInstruction::Access { .. }) => todo!("fields are not supported"),
                     lcr::Instruction::DoAction(lcr::ActionInstruction::MethodCall { .. }) => todo!("methods are not supported"),
                     lcr::Instruction::DoAction(lcr::ActionInstruction::Call { what, .. }) =>
-                        if let lcr::TypeRef::Function(func) = resolve_type_inner(what, func_map, var_scope, item_map, rec) {
+                        if let lcr::TypeRef::Function(func) = resolve_type_inner(what, func_map, var_scope, temp_var_scope, item_map, rec) {
                             func.r#return
                         } else {
                             panic!("cant call non functions")
@@ -81,18 +86,18 @@ fn resolve_type_inner(
         },
         lcr::SBlockTag::Handle { what, .. }
         | lcr::SBlockTag::Unhandle { what } =>
-            resolve_type_inner(what, func_map, var_scope, item_map, rec),
+            resolve_type_inner(what, func_map, var_scope, temp_var_scope, item_map, rec),
         lcr::SBlockTag::Condition { code, .. } =>
-            resolve_type_inner(code, func_map, var_scope, item_map, true),
+            resolve_type_inner(code, func_map, var_scope, temp_var_scope, item_map, true),
         lcr::SBlockTag::Selector { cases, .. } =>
-            cases.first().map(|(_, b)| resolve_type_inner(b, func_map, var_scope, item_map, true)).unwrap_or(lcr::TypeRef::Nothing),
+            cases.first().map(|(_, b)| resolve_type_inner(b, func_map, var_scope, temp_var_scope, item_map, true)).unwrap_or(lcr::TypeRef::Nothing),
         lcr::SBlockTag::Loop { code } =>
-            if let lcr::TypeRef::Never = resolve_type_inner(code, func_map, var_scope, item_map, rec) {
+            if let lcr::TypeRef::Never = resolve_type_inner(code, func_map, var_scope, temp_var_scope, item_map, rec) {
                 lcr::TypeRef::Never
             } else if let lcr::SBlockTag::Simple { code, .. } = &*code.tag {
                 for instr in code {
                     if let lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { value: Some(value), .. }) = instr {
-                        return resolve_type_inner(value, func_map, var_scope, item_map, rec)
+                        return resolve_type_inner(value, func_map, var_scope, temp_var_scope, item_map, rec)
                     };
                 };
                 lcr::TypeRef::Never

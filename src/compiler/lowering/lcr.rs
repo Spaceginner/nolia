@@ -81,7 +81,6 @@ pub (in super::super) struct ProtocolType {
 pub (in super::super) struct Declaration {
     pub name: Box<str>,
     pub r#type: TypeRef,
-    pub default: Option<SBlock>,
 }
 
 #[derive(Debug, Clone)]

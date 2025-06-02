@@ -28,7 +28,8 @@ pub enum SysCallId {
     },
     Panic,
     PrintLine,
-    VmDebug,
+    Debug,
+    Add,
 }
 
 impl TryFrom<Id> for SysCallId {
@@ -41,6 +42,8 @@ impl TryFrom<Id> for SysCallId {
                 match item {
                     0 => Self::Panic,
                     1 => Self::PrintLine,
+                    2 => Self::Debug,
+                    3 => Self::Add,
                     _ => Err(())?,
                 }
         })
@@ -500,7 +503,7 @@ impl FunctionScope {
                         SysCallId::Panic => {
                             panic!("panic.");
                         },
-                        SysCallId::VmDebug => {
+                        SysCallId::Debug => {
                             eprintln!("------------ DEBUG ------------");
                             eprintln!("DCode: {}", match vm.memory[vm.stack[0]] {
                                 Object::Fundamental(ConstItem::Integer(Integer::U32(n))) => n,
@@ -509,7 +512,20 @@ impl FunctionScope {
                             eprintln!("{:#?}", vm.memory());
                             eprintln!("{:?}", vm.stack());
                             vm.memory.dereg_ref(vm.stack.pop());
-                        }
+                        },
+                        SysCallId::Add => {
+                            let a = &vm.memory[vm.stack[1]];
+                            let b = &vm.memory[vm.stack[0]];
+
+                            // todo implement all of the pairs
+                            let res = match (a, b) {
+                                (&Object::Fundamental(ConstItem::Integer(Integer::I64(a))), &Object::Fundamental(ConstItem::Integer(Integer::I64(b)))) =>
+                                    Object::Fundamental(ConstItem::Integer(Integer::I64(a + b))),
+                                _ => panic!("mismatch"),
+                            };
+                            
+                            vm.push_new(res);
+                        },
                     }
                 },
                 Op::Return => {

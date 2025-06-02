@@ -8,7 +8,7 @@ asm {
     syscall add;
 }
 
-fnc fib || -> ! {
+fnc entry || -> ! {
     let a: %i 64 = 0;
     let b: %i 64 = 1;
     #loop {
@@ -17,8 +17,4 @@ fnc fib || -> ! {
         a = b;
         b = c;
     }
-}
-
-fnc entry || {
-    fib()
 }

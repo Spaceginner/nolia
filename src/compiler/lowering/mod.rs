@@ -82,9 +82,20 @@ fn transform_stmt_b(root: &lcr::Path, stmt_b: ast::StatementBlock<'_>) -> lcr::S
                     decls.push(lcr::Declaration {
                         name: what.name.into(),
                         r#type: transform_type(root, what.r#type),
-                        default: with.map(|e| transform_expr(root, e)),
                     });
-                    None?
+                    with.map(|e| lcr::Instruction::DoStatement(lcr::StatementInstruction::Assignment {
+                        what: lcr::SBlock { label: None, tag: Box::new(lcr::SBlockTag::Simple {
+                            closed: false,
+                            decls: vec![],
+                            code: vec![lcr::Instruction::DoAction(lcr::ActionInstruction::Load {
+                                item: lcr::IntermediatePath {
+                                    var: Some(what.name.into()),
+                                    path: lcr::Path { crate_: None, parts: vec![] },
+                                },
+                            })],
+                        }) },
+                        to: transform_expr(root, e),
+                    }))?
                 },
                 ast::Statement::Eval { expr } =>
                     lcr::Instruction::DoBlock(transform_expr(root, expr)),
