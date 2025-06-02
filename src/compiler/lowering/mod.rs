@@ -22,7 +22,7 @@ impl Compiler {
 
         for (root, r#mod) in crate_.mods {
             for decl in r#mod.decls {
-                let mut p = root.clone();
+                let p = root.clone();
                 match decl {
                     ast::Declaration::Include { item } => { todo!("includes not supported"); },
                     ast::Declaration::Data { .. } => { todo!("data not supported"); },

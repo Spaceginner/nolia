@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crate::vm;
 use super::super::lowering::lcr;
-use super::types;
+use super::types::resolve_type;
 
 pub fn compile_function(
     func: lcr::Function,
@@ -40,7 +40,7 @@ fn compile_s_func(
             arg_count,
         );
 
-    if !types::resolve_type(&s_block, func_map, &var_scope, &item_map).within(&func_type.r#return) {
+    if !resolve_type(&s_block, func_map, &var_scope, item_map).within(&func_type.r#return) {
         panic!("return value is of wrong return type");
     };
 
@@ -175,7 +175,7 @@ fn compile_instruction(
         },
         lcr::Instruction::DoAction(lcr::ActionInstruction::Access { of, field }) => todo!("fields access not supported"),
         lcr::Instruction::DoAction(lcr::ActionInstruction::Call { what, args }) => {
-            if let lcr::TypeRef::Function(func) = types::resolve_type(&what, func_map, var_scope, item_map) {
+            if let lcr::TypeRef::Function(func) = resolve_type(&what, func_map, var_scope, item_map) {
                 let lcr::FunctionType { generics, captures, r#return, .. } = *func;
                 assert!(generics.is_empty(), "generics are not supported");
 
@@ -183,7 +183,7 @@ fn compile_instruction(
                     panic!("function expected different number of arguments");
                 };
 
-                if !args.iter().map(|arg| types::resolve_type(arg, func_map, var_scope, item_map)).zip(captures.into_iter()).all(|(arg, (_, cap))| arg.within(&cap)) {
+                if !args.iter().map(|arg| resolve_type(arg, func_map, var_scope, item_map)).zip(captures.into_iter()).all(|(arg, (_, cap))| arg.within(&cap)) {
                     panic!("some args have mismatched types");
                 };
 
@@ -259,7 +259,7 @@ fn compile_instruction(
 }
 
 fn compile_s_block(
-    mut s_block: lcr::SBlock,
+    s_block: lcr::SBlock,
     starts_at: usize,
     var_scope: &mut (HashMap<Box<str>, (usize, lcr::TypeRef)>, usize),
     label_scope: &mut HashMap<&str, usize>,
@@ -267,7 +267,7 @@ fn compile_s_block(
     item_map: &HashMap<lcr::Path, (usize, lcr::PrimitiveType)>,
     items: &mut Vec<vm::ConstItem>,
 ) -> Vec<vm::Op> {
-    let self_type = types::resolve_type(&s_block, func_map, var_scope, item_map);
+    let self_type = resolve_type(&s_block, func_map, var_scope, item_map);
 
     match *s_block.tag {
         lcr::SBlockTag::Simple { code, mut decls, closed } => {
@@ -300,7 +300,7 @@ fn compile_s_block(
             let mut offset = init_code.len();
             let main_code = code.into_iter().enumerate()
                 .map(|(i, instr)| {
-                    let ret_something = !types::resolve_type(
+                    let ret_something = !resolve_type(
                         &lcr::SBlock {
                             label: None,
                             tag: Box::new(lcr::SBlockTag::Simple {
@@ -349,11 +349,11 @@ fn compile_s_block(
         },
         lcr::SBlockTag::Condition { code, check, otherwise } => {
             if let Some(b) = otherwise.as_ref()
-                && !types::resolve_type(b, func_map, var_scope, item_map).within(&self_type) {
+                && !resolve_type(b, func_map, var_scope, item_map).within(&self_type) {
                 panic!("branch is not of the same return type");
             };
 
-            if !types::resolve_type(&check, func_map, var_scope, item_map).within(&lcr::TypeRef::Primitive(lcr::PrimitiveType::Bool)) {
+            if !resolve_type(&check, func_map, var_scope, item_map).within(&lcr::TypeRef::Primitive(lcr::PrimitiveType::Bool)) {
                 panic!("check is not bool");
             };
 
@@ -430,7 +430,7 @@ fn compile_s_block(
         lcr::SBlockTag::Handle { .. } => todo!(),
         lcr::SBlockTag::Unhandle { .. } => todo!(),
         lcr::SBlockTag::Loop { code } => {
-            if !types::resolve_type(&code, func_map, var_scope, item_map).within(&lcr::TypeRef::Nothing) {
+            if !resolve_type(&code, func_map, var_scope, item_map).within(&lcr::TypeRef::Nothing) {
                 panic!("code mustn't return anything (only through escaping)");
             };
 
@@ -444,11 +444,11 @@ fn compile_s_block(
         },
         // todo merge with simple loop
         lcr::SBlockTag::While { code, check, do_first } => {
-            if !types::resolve_type(&code, func_map, var_scope, item_map).within(&lcr::TypeRef::Nothing) {
+            if !resolve_type(&code, func_map, var_scope, item_map).within(&lcr::TypeRef::Nothing) {
                 panic!("code mustn't return anything");
             };
 
-            if !types::resolve_type(&check, func_map, var_scope, item_map).within(&lcr::TypeRef::Primitive(lcr::PrimitiveType::Bool)) {
+            if !resolve_type(&check, func_map, var_scope, item_map).within(&lcr::TypeRef::Primitive(lcr::PrimitiveType::Bool)) {
                 panic!("check is not bool");
             };
 
