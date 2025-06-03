@@ -351,13 +351,9 @@ fn compile_s_block(
 
                     code_offset += 1;
                     var_scope.1 += 1;
-                    vec![vm::Op::LoadSystemItem { id: vm::SysItemId::Void }]
+                    vm::Op::LoadSystemItem { id: vm::SysItemId::Void }
                 })
-                .reduce(|mut a, mut b| {
-                    a.append(&mut b);
-                    a
-                })
-                .unwrap_or_else(|| vec![]);
+                .collect();
 
             let last_instr_i = code.len() - 1;
             let mut offset = init_code.len();
@@ -385,11 +381,8 @@ fn compile_s_block(
                     };
                     code
                 })
-                .reduce(|mut a, mut b| {
-                    a.append(&mut b);
-                    a
-                })
-                .unwrap_or_else(|| vec![]);
+                .flatten()
+                .collect();
 
             // todo dont add deinit if noreturn
             let deinit_code = if decls.is_empty() { vec![] } else {
