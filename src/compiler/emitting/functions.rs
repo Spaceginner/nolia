@@ -47,6 +47,7 @@ fn compile_s_func(
     let code = compile_s_block(
         s_block,
         1,
+        &func_type.r#return,
         &mut var_scope,
         &mut HashMap::new(),
         func_map,
@@ -151,6 +152,7 @@ fn compile_instruction(
     instr: lcr::Instruction,
     block_starts_at: usize,
     this_instr_at: usize,
+    ret_type: &lcr::TypeRef,
     var_scope: &mut (HashMap<Box<str>, (usize, lcr::TypeRef)>, usize),
     label_scope: &mut HashMap<&str, usize>,
     func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>,
@@ -159,7 +161,7 @@ fn compile_instruction(
 ) -> Vec<vm::Op> {
     match instr {
         lcr::Instruction::DoBlock(block) =>
-            compile_s_block(block, this_instr_at, var_scope, label_scope, func_map, item_map, items),
+            compile_s_block(block, this_instr_at, ret_type, var_scope, label_scope, func_map, item_map, items),
         lcr::Instruction::LoadLiteral(lit) => {
             var_scope.1 += 1;
             vec![match lit {
@@ -188,12 +190,12 @@ fn compile_instruction(
                     panic!("some args have mismatched types");
                 };
 
-                let get_func = compile_s_block(what, this_instr_at, var_scope, label_scope, func_map, item_map, items);
+                let get_func = compile_s_block(what, this_instr_at, ret_type, var_scope, label_scope, func_map, item_map, items);
                 let mut offset = get_func.len();
                 let mut args_code = Vec::new();
                 let arg_count = args.len();
                 for arg in args {
-                    let mut arg_code = compile_s_block(arg, this_instr_at + offset, var_scope, label_scope, func_map, item_map, items);
+                    let mut arg_code = compile_s_block(arg, this_instr_at + offset, ret_type, var_scope, label_scope, func_map, item_map, items);
                     offset += arg_code.len();
                     args_code.append(&mut arg_code);
                 };
@@ -252,7 +254,7 @@ fn compile_instruction(
                     lcr::Instruction::DoAction(lcr::ActionInstruction::Load { item, .. }) => {
                         let replace_pos = var_scope.0[item.var.as_ref().unwrap()].0;
 
-                        let value = compile_s_block(to, this_instr_at, var_scope, label_scope, func_map, item_map, items);
+                        let value = compile_s_block(to, this_instr_at, ret_type, var_scope, label_scope, func_map, item_map, items);
                         var_scope.1 -= 1;
 
                         [
@@ -276,7 +278,37 @@ fn compile_instruction(
         },
         lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label }) => todo!(),
         lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { label, value }) => todo!(),
-        lcr::Instruction::DoStatement(lcr::StatementInstruction::Return { value }) => todo!(),
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::Return { value }) => {
+            if !value.as_ref().map_or(lcr::TypeRef::Nothing, |v| resolve_type(v, func_map, var_scope, item_map)).within(ret_type) {
+                panic!("function return type mismatch");
+            };
+
+            if let Some(ret_v) = value {
+                let ret_code = compile_s_block(ret_v, this_instr_at, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let count = var_scope.1 - 1;
+                var_scope.1 = 1;
+                [
+                    ret_code,
+                    vec![
+                        vm::Op::Pop {
+                            count,
+                            offset: 1,
+                        },
+                        vm::Op::Return,
+                    ],
+                ].concat()
+            } else {
+                let count = var_scope.1;
+                var_scope.1 = 0;
+                vec![
+                    vm::Op::Pop {
+                        count,
+                        offset: 0,
+                    },
+                    vm::Op::Return,
+                ]
+            }
+        },
         lcr::Instruction::DoStatement(lcr::StatementInstruction::Throw { error }) => todo!("exceptions are not supported"),
         lcr::Instruction::DoStatement(lcr::StatementInstruction::VmDebug { dcode }) =>
             vec![
@@ -297,6 +329,7 @@ fn compile_instruction(
 fn compile_s_block(
     s_block: lcr::SBlock,
     starts_at: usize,
+    ret_type: &lcr::TypeRef,
     var_scope: &mut (HashMap<Box<str>, (usize, lcr::TypeRef)>, usize),
     label_scope: &mut HashMap<&str, usize>,
     func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>,
@@ -328,6 +361,7 @@ fn compile_s_block(
 
             let last_instr_i = code.len() - 1;
             let mut offset = init_code.len();
+            // todo ignore code after noreturn instr
             let main_code = code.into_iter().enumerate()
                 .map(|(i, instr)| {
                     let ret_something = !resolve_type(
@@ -343,7 +377,7 @@ fn compile_s_block(
                         var_scope,
                         item_map,
                     ).within(&lcr::TypeRef::Nothing);
-                    let mut code = compile_instruction(instr, starts_at, starts_at + offset, var_scope, label_scope, func_map, item_map, items);
+                    let mut code = compile_instruction(instr, starts_at, starts_at + offset, ret_type, var_scope, label_scope, func_map, item_map, items);
                     offset += code.len();
                     if ret_something && (closed || i != last_instr_i) {
                         var_scope.1 -= 1;
@@ -357,6 +391,7 @@ fn compile_s_block(
                 })
                 .unwrap_or_else(|| vec![]);
 
+            // todo dont add deinit if noreturn
             let deinit_code = if decls.is_empty() { vec![] } else {
                 vec![vm::Op::Pop {
                     count: decls.len(),
@@ -376,20 +411,19 @@ fn compile_s_block(
                 panic!("check is not bool");
             };
 
-            let check_code = compile_s_block(check, starts_at, var_scope, label_scope, func_map, item_map, items);
+            let ret_count = if self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 };
+            let check_code = compile_s_block(check, starts_at, ret_type, var_scope, label_scope, func_map, item_map, items);
             var_scope.1 -= 1;
 
-            let main_pos = starts_at + check_code.len() + 3;
-            // let mut otherwise_var_scope = var_scope.clone();
-            let main_code = compile_s_block(code, main_pos, var_scope, label_scope, func_map, item_map, items);
-            let after_main_pos = main_pos + main_code.len() + 1;
+            if let Some(otherwise_code) = otherwise {
+                let main_pos = starts_at + check_code.len() + 3;
+                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let after_main_pos = main_pos + main_code.len() + 1;
 
-            let ret_count = if self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 };
-            var_scope.1 -= ret_count;  // to accommodate for return val of main_code
-            let otherwise_code = otherwise.map(|b| compile_s_block(b, after_main_pos + 1, var_scope, label_scope, func_map, item_map, items));
-
-            if let Some(otherwise) = otherwise_code {
+                var_scope.1 -= ret_count;
+                let otherwise = compile_s_block(otherwise_code, after_main_pos + 1, ret_type, var_scope, label_scope, func_map, item_map, items);
                 let after_otherwise_pos = after_main_pos + otherwise.len() + 1;
+
                 [
                     check_code,
                     vec![
@@ -420,28 +454,36 @@ fn compile_s_block(
                     otherwise,
                 ].concat()
             } else {
+                let main_pos = starts_at + check_code.len() + 2;
+                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let after_main_pos = main_pos + main_code.len() + 1 + 1;
+
+                var_scope.1 -= ret_count;
+
                 [
                     check_code,
                     vec![
-                        // xxx introduce a jump-else kind of instr
+                        // todo introduce a jump-else kind of instr
                         vm::Op::Jump {
-                            to: main_pos,
-                            check: Some(true),
+                            to: after_main_pos,
+                            check: Some(false),
                         },
                         vm::Op::Pop {
                             count: 1,
                             offset: 0,
                         },
+                    ],
+                    main_code,
+                    vec![
                         vm::Op::Jump {
-                            to: after_main_pos,
+                            to: after_main_pos + 1,
                             check: None,
                         },
                         vm::Op::Pop {
                             count: 1,
                             offset: 0,
-                        }
-                    ],
-                    main_code,
+                        },
+                    ]
                 ].concat()
             }
         },
@@ -454,7 +496,7 @@ fn compile_s_block(
             };
 
             [
-                compile_s_block(code, starts_at, var_scope, label_scope, func_map, item_map, items),
+                compile_s_block(code, starts_at, ret_type, var_scope, label_scope, func_map, item_map, items),
                 vec![vm::Op::Jump {
                     to: starts_at,
                     check: None
@@ -473,9 +515,9 @@ fn compile_s_block(
 
             if do_first {
                 let main_pos = starts_at + 2;
-                let main_code = compile_s_block(code, starts_at, var_scope, label_scope, func_map, item_map, items);
+                let main_code = compile_s_block(code, starts_at, ret_type, var_scope, label_scope, func_map, item_map, items);
                 let check_pos = main_pos + main_code.len();
-                let check_code = compile_s_block(check, check_pos, var_scope, label_scope, func_map, item_map, items);
+                let check_code = compile_s_block(check, check_pos, ret_type, var_scope, label_scope, func_map, item_map, items);
                 var_scope.1 -= 1;
 
                 [
@@ -503,10 +545,10 @@ fn compile_s_block(
                     ],
                 ].concat()
             } else {
-                let check_code = compile_s_block(check, starts_at, var_scope, label_scope, func_map, item_map, items);
+                let check_code = compile_s_block(check, starts_at, ret_type, var_scope, label_scope, func_map, item_map, items);
                 var_scope.1 -= 1;
                 let main_pos = starts_at + check_code.len() + 2;
-                let main_code = compile_s_block(code, main_pos, var_scope, label_scope, func_map, item_map, items);
+                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, label_scope, func_map, item_map, items);
                 let loop_end_pos = main_pos + main_code.len() + 2;
 
                 [

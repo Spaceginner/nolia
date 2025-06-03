@@ -8,13 +8,15 @@ asm {
     syscall add;
 }
 
-fnc entry || -> ! {
-    let a: %i 64 = 0;
-    let b: %i 64 = 1;
-    #loop {
-        println(b);
-        let c: %i 64 = add(a, b);
-        a = b;
-        b = c;
-    }
+fnc funny |check: %bool| -> %i 64 {
+    #if check {
+        return 5;
+    };
+    
+    6
+}
+
+fnc entry || {
+    println(funny(false));  // 6
+    println(funny(true));  // 5
 }
