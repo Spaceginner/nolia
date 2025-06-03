@@ -176,7 +176,24 @@ fn compile_instruction(
                 },
             }]
         },
-        lcr::Instruction::DoAction(lcr::ActionInstruction::Access { of, field }) => todo!("fields access not supported"),
+        lcr::Instruction::DoAction(lcr::ActionInstruction::Load { item }) => {
+            if let Some(var) = item.var.as_ref()
+                && let Some(&(i, _)) = var_scope.0.get(var) {
+                let code = vec![vm::Op::Copy { offset: var_scope.1 - i - 1, count: 1 }];
+                var_scope.1 += 1;
+                code
+            } else {
+                var_scope.1 += 1;
+                assert!(item.path.crate_.is_none());
+                if let Some((i, _)) = item_map.get(&item.path) {
+                    vec![vm::Op::LoadConstItem { id: (*i).into() }]
+                } else if let Some((i, _)) = func_map.get(&item.path) {
+                    vec![vm::Op::LoadFunction { id: (*i).into() }]
+                } else {
+                    panic!("such item doesnt exist");
+                }
+            }
+        },
         lcr::Instruction::DoAction(lcr::ActionInstruction::Call { what, args }) => {
             if let lcr::TypeRef::Function(func) = resolve_type(&what, func_map, var_scope, item_map) {
                 let lcr::FunctionType { generics, captures, r#return, .. } = *func;
@@ -219,25 +236,8 @@ fn compile_instruction(
                 panic!("cant call not functions")
             }
         },
+        lcr::Instruction::DoAction(lcr::ActionInstruction::Access { of, field }) => todo!("fields access not supported"),
         lcr::Instruction::DoAction(lcr::ActionInstruction::MethodCall { what, method, args }) => todo!("methods are not supported"),
-        lcr::Instruction::DoAction(lcr::ActionInstruction::Load { item }) => {
-            if let Some(var) = item.var.as_ref()
-                && let Some(&(i, _)) = var_scope.0.get(var) {
-                let code = vec![vm::Op::Copy { offset: var_scope.1 - i - 1, count: 1 }];
-                var_scope.1 += 1;
-                code
-            } else {
-                var_scope.1 += 1;
-                assert!(item.path.crate_.is_none());
-                if let Some((i, _)) = item_map.get(&item.path) {
-                    vec![vm::Op::LoadConstItem { id: (*i).into() }]
-                } else if let Some((i, _)) = func_map.get(&item.path) {
-                    vec![vm::Op::LoadFunction { id: (*i).into() }]
-                } else {
-                    panic!("such item doesnt exist");
-                }
-            }
-        },
         lcr::Instruction::Construct(lcr::ConstructInstruction::Data { what, fields }) => todo!("datas are not supported"),
         lcr::Instruction::Construct(lcr::ConstructInstruction::Array { vals }) => todo!("arrays are not supported"),
         lcr::Instruction::DoStatement(lcr::StatementInstruction::Assignment { what, to }) => {

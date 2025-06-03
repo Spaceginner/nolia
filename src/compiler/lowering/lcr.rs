@@ -91,21 +91,21 @@ pub (in super::super) struct IntermediatePath {
 
 #[derive(Debug, Clone)]
 pub (in super::super) enum ActionInstruction {
+    Load {
+        item: IntermediatePath,
+    },
     Call {
         what: SBlock,
-        args: Vec<SBlock>,
-    },
-    MethodCall {
-        what: SBlock,
-        method: Box<str>,
         args: Vec<SBlock>,
     },
     Access {
         of: SBlock,
         field: Box<str>,
     },
-    Load {
-        item: IntermediatePath,
+    MethodCall {
+        what: SBlock,
+        method: Box<str>,
+        args: Vec<SBlock>,
     },
 }
 
@@ -151,11 +151,11 @@ pub (in super::super) enum StatementInstruction {
         what: SBlock,
         to: SBlock,
     },
-    Escape {
-        value: Option<SBlock>,
+    Repeat {
         label: Option<Box<str>>,
     },
-    Repeat {
+    Escape {
+        value: Option<SBlock>,
         label: Option<Box<str>>,
     },
     Return {
@@ -172,8 +172,8 @@ pub (in super::super) enum StatementInstruction {
 #[derive(Debug, Clone)]
 pub (in super::super) enum Instruction {
     DoBlock(SBlock),
-    DoAction(ActionInstruction),
     LoadLiteral(LiteralValue),
+    DoAction(ActionInstruction),
     Construct(ConstructInstruction),
     DoStatement(StatementInstruction),
 }
