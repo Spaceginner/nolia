@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crate::vm;
 use super::super::lowering::lcr;
-use super::types::resolve_type;
+use super::types::{resolve_type, returns_something};
 
 pub fn compile_function(
     func: lcr::Function,
@@ -49,7 +49,7 @@ fn compile_s_func(
         1,
         &func_type.r#return,
         &mut var_scope,
-        &mut HashMap::new(),
+        &mut Vec::new(),
         func_map,
         item_map,
         items,
@@ -108,8 +108,8 @@ fn compile_asm_func(
                 id: id.either(
                     |id| id.into(),
                     |name| match &name[..] {  // fixme soft-code sysitem name matching
-                        "false" => vm::SysItemId::False,
-                        "true" => vm::SysItemId::True,
+                        "false_" => vm::SysItemId::False,
+                        "true_" => vm::SysItemId::True,
                         "void" => vm::SysItemId::Void,
                         _ => panic!("unknown sys item")
                     },
@@ -127,6 +127,7 @@ fn compile_asm_func(
                         "println" => vm::SysCallId::PrintLine,
                         "debug" => vm::SysCallId::Debug,
                         "add" => vm::SysCallId::Add,
+                        "eq" => vm::SysCallId::Equal,
                         _ => panic!("unknown sys call")
                     }
                 )
@@ -150,18 +151,18 @@ fn compile_asm_func(
 
 fn compile_instruction(
     instr: lcr::Instruction,
-    block_starts_at: usize,
+    cur_block_info: &BlockInfo,
     this_instr_at: usize,
     ret_type: &lcr::TypeRef,
     var_scope: &mut (HashMap<Box<str>, (usize, lcr::TypeRef)>, usize),
-    label_scope: &mut HashMap<&str, usize>,
+    block_stack: &mut Vec<(Box<str>, BlockInfo)>,
     func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>,
     item_map: &HashMap<lcr::Path, (usize, lcr::PrimitiveType)>,
     items: &mut Vec<vm::ConstItem>,
 ) -> Vec<vm::Op> {
     match instr {
         lcr::Instruction::DoBlock(block) =>
-            compile_s_block(block, this_instr_at, ret_type, var_scope, label_scope, func_map, item_map, items),
+            compile_s_block(block, this_instr_at, ret_type, var_scope, block_stack, func_map, item_map, items),
         lcr::Instruction::LoadLiteral(lit) => {
             var_scope.1 += 1;
             vec![match lit {
@@ -207,12 +208,12 @@ fn compile_instruction(
                     panic!("some args have mismatched types");
                 };
 
-                let get_func = compile_s_block(what, this_instr_at, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let get_func = compile_s_block(what, this_instr_at, ret_type, var_scope, block_stack, func_map, item_map, items);
                 let mut offset = get_func.len();
                 let mut args_code = Vec::new();
                 let arg_count = args.len();
                 for arg in args {
-                    let mut arg_code = compile_s_block(arg, this_instr_at + offset, ret_type, var_scope, label_scope, func_map, item_map, items);
+                    let mut arg_code = compile_s_block(arg, this_instr_at + offset, ret_type, var_scope, block_stack, func_map, item_map, items);
                     offset += arg_code.len();
                     args_code.append(&mut arg_code);
                 };
@@ -254,7 +255,7 @@ fn compile_instruction(
                     lcr::Instruction::DoAction(lcr::ActionInstruction::Load { item, .. }) => {
                         let replace_pos = var_scope.0[item.var.as_ref().unwrap()].0;
 
-                        let value = compile_s_block(to, this_instr_at, ret_type, var_scope, label_scope, func_map, item_map, items);
+                        let value = compile_s_block(to, this_instr_at, ret_type, var_scope, block_stack, func_map, item_map, items);
                         var_scope.1 -= 1;
 
                         [
@@ -276,15 +277,58 @@ fn compile_instruction(
                 panic!("cant assign to non-simple blocks")
             }
         },
-        lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label }) => todo!(),
-        lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { label, value }) => todo!(),
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label }) => {
+            let block_info = label.map_or(cur_block_info, |l| &block_stack.iter().rev().find(|&(n, _)| l == *n).unwrap().1);
+            vec![
+                vm::Op::Pop {
+                    count: var_scope.1 - block_info.var_stack,
+                    offset: 0,
+                },
+                vm::Op::Jump {
+                    to: block_info.start,
+                    check: None,
+                },
+            ]
+        },
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { label, value }) => {
+            let v_type = value.as_ref().map_or(lcr::TypeRef::Nothing, |v| resolve_type(v, func_map, var_scope, item_map));
+            
+            // has to be placed before the type check, because block_info will be borrowed later
+            let v_code = if let Some(v_block) = value {
+                compile_s_block(v_block, this_instr_at, ret_type, var_scope, block_stack, func_map, item_map, items)
+            } else {
+                vec![]
+            };
+            
+            let block_info = label.map_or(cur_block_info, |l| &block_stack.iter().rev().find(|&(n, _)| l == *n).unwrap().1);
+            
+            if !v_type.within(&block_info.self_type) {
+                panic!("escape type mismatch");
+            };
+            
+            let ret_count = if block_info.self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 };
+
+            [
+                v_code,
+                vec![
+                    vm::Op::Pop {
+                        count: var_scope.1 - block_info.var_stack,
+                        offset: ret_count,
+                    },
+                    vm::Op::Jump {
+                        to: block_info.end,
+                        check: None,
+                    },
+                ]
+            ].concat()
+        },
         lcr::Instruction::DoStatement(lcr::StatementInstruction::Return { value }) => {
             if !value.as_ref().map_or(lcr::TypeRef::Nothing, |v| resolve_type(v, func_map, var_scope, item_map)).within(ret_type) {
                 panic!("function return type mismatch");
             };
 
             if let Some(ret_v) = value {
-                let ret_code = compile_s_block(ret_v, this_instr_at, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let ret_code = compile_s_block(ret_v, this_instr_at, ret_type, var_scope, block_stack, func_map, item_map, items);
                 let count = var_scope.1 - 1;
                 var_scope.1 = 1;
                 [
@@ -326,17 +370,34 @@ fn compile_instruction(
     }
 }
 
+#[derive(Debug, Clone)]
+struct BlockInfo {
+    start: usize,
+    end: usize,
+    var_stack: usize,
+    self_type: lcr::TypeRef,  // xxx somehow turn into a ref
+}
+
 fn compile_s_block(
     s_block: lcr::SBlock,
     starts_at: usize,
     ret_type: &lcr::TypeRef,
     var_scope: &mut (HashMap<Box<str>, (usize, lcr::TypeRef)>, usize),
-    label_scope: &mut HashMap<&str, usize>,
+    block_stack: &mut Vec<(Box<str>, BlockInfo)>,
     func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>,
     item_map: &HashMap<lcr::Path, (usize, lcr::PrimitiveType)>,
     items: &mut Vec<vm::ConstItem>,
 ) -> Vec<vm::Op> {
-    let self_type = resolve_type(&s_block, func_map, var_scope, item_map);
+    let cur_block_info = BlockInfo {
+        start: starts_at,
+        end: starts_at + estimate_size(&s_block, func_map),
+        var_stack: var_scope.1,
+        self_type: resolve_type(&s_block, func_map, var_scope, item_map),
+    };
+
+    if let Some(label) = s_block.label {
+        block_stack.push((label, cur_block_info.clone()));
+    };
 
     match *s_block.tag {
         lcr::SBlockTag::Simple { code, mut decls, closed } => {
@@ -353,13 +414,13 @@ fn compile_s_block(
                     var_scope.1 += 1;
                     vm::Op::LoadSystemItem { id: vm::SysItemId::Void }
                 })
-                .collect();
+                .collect::<Vec<_>>();
 
             let last_instr_i = code.len() - 1;
             let mut offset = init_code.len();
             // todo ignore code after noreturn instr
             let main_code = code.into_iter().enumerate()
-                .map(|(i, instr)| {
+                .flat_map(|(i, instr)| {
                     let ret_something = !resolve_type(
                         &lcr::SBlock {
                             label: None,
@@ -373,7 +434,7 @@ fn compile_s_block(
                         var_scope,
                         item_map,
                     ).within(&lcr::TypeRef::Nothing);
-                    let mut code = compile_instruction(instr, starts_at, starts_at + offset, ret_type, var_scope, label_scope, func_map, item_map, items);
+                    let mut code = compile_instruction(instr, &cur_block_info, starts_at + offset, ret_type, var_scope, block_stack, func_map, item_map, items);
                     offset += code.len();
                     if ret_something && (closed || i != last_instr_i) {
                         var_scope.1 -= 1;
@@ -381,22 +442,27 @@ fn compile_s_block(
                     };
                     code
                 })
-                .flatten()
                 .collect();
 
             // todo dont add deinit if noreturn
             let deinit_code = if decls.is_empty() { vec![] } else {
                 vec![vm::Op::Pop {
                     count: decls.len(),
-                    offset: if self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 },
+                    offset: if cur_block_info.self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 },
                 }]
+            };
+
+            var_scope.1 -= decls.len();
+
+            for lcr::Declaration { name, .. } in &decls {
+                var_scope.0.remove(name);
             };
 
             [init_code, main_code, deinit_code].concat()
         },
         lcr::SBlockTag::Condition { code, check, otherwise } => {
             if let Some(b) = otherwise.as_ref()
-                && !resolve_type(b, func_map, var_scope, item_map).within(&self_type) {
+                && !resolve_type(b, func_map, var_scope, item_map).within(&cur_block_info.self_type) {
                 panic!("branch is not of the same return type");
             };
 
@@ -404,17 +470,17 @@ fn compile_s_block(
                 panic!("check is not bool");
             };
 
-            let ret_count = if self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 };
-            let check_code = compile_s_block(check, starts_at, ret_type, var_scope, label_scope, func_map, item_map, items);
+            let ret_count = if cur_block_info.self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 };
+            let check_code = compile_s_block(check, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items);
             var_scope.1 -= 1;
 
             if let Some(otherwise_code) = otherwise {
                 let main_pos = starts_at + check_code.len() + 3;
-                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, block_stack, func_map, item_map, items);
                 let after_main_pos = main_pos + main_code.len() + 1;
 
                 var_scope.1 -= ret_count;
-                let otherwise = compile_s_block(otherwise_code, after_main_pos + 1, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let otherwise = compile_s_block(otherwise_code, after_main_pos + 1, ret_type, var_scope, block_stack, func_map, item_map, items);
                 let after_otherwise_pos = after_main_pos + otherwise.len() + 1;
 
                 [
@@ -447,9 +513,9 @@ fn compile_s_block(
                     otherwise,
                 ].concat()
             } else {
-                let main_pos = starts_at + check_code.len() + 2;
-                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, label_scope, func_map, item_map, items);
-                let after_main_pos = main_pos + main_code.len() + 1 + 1;
+                let main_pos = starts_at + check_code.len() + 1;
+                let main_code = compile_s_block(code, main_pos + 1, ret_type, var_scope, block_stack, func_map, item_map, items);
+                let after_main_pos = main_pos + 1 + main_code.len() + 1;
 
                 var_scope.1 -= ret_count;
 
@@ -489,7 +555,7 @@ fn compile_s_block(
             };
 
             [
-                compile_s_block(code, starts_at, ret_type, var_scope, label_scope, func_map, item_map, items),
+                compile_s_block(code, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items),
                 vec![vm::Op::Jump {
                     to: starts_at,
                     check: None
@@ -508,9 +574,9 @@ fn compile_s_block(
 
             if do_first {
                 let main_pos = starts_at + 2;
-                let main_code = compile_s_block(code, starts_at, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let main_code = compile_s_block(code, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items);
                 let check_pos = main_pos + main_code.len();
-                let check_code = compile_s_block(check, check_pos, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let check_code = compile_s_block(check, check_pos, ret_type, var_scope, block_stack, func_map, item_map, items);
                 var_scope.1 -= 1;
 
                 [
@@ -538,10 +604,10 @@ fn compile_s_block(
                     ],
                 ].concat()
             } else {
-                let check_code = compile_s_block(check, starts_at, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let check_code = compile_s_block(check, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items);
                 var_scope.1 -= 1;
                 let main_pos = starts_at + check_code.len() + 2;
-                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, label_scope, func_map, item_map, items);
+                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, block_stack, func_map, item_map, items);
                 let loop_end_pos = main_pos + main_code.len() + 2;
 
                 [
@@ -568,6 +634,60 @@ fn compile_s_block(
                 ].concat()
             }
         },
+        lcr::SBlockTag::Over { .. } => todo!(),
+    }
+}
+
+fn estimate_size_instr(instr: &lcr::Instruction, func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>) -> usize {
+    match instr {
+        lcr::Instruction::DoBlock(block) => estimate_size(block, func_map),
+        lcr::Instruction::LoadLiteral(_) => 1,
+        lcr::Instruction::DoAction(lcr::ActionInstruction::Load { item: _ }) => 1,
+        lcr::Instruction::DoAction(lcr::ActionInstruction::Call { what, args }) => estimate_size(what, func_map) + args.iter().map(|a| estimate_size(a, func_map)).sum::<usize>() + 2,
+        lcr::Instruction::DoAction(lcr::ActionInstruction::Access { .. }) => todo!(),
+        lcr::Instruction::DoAction(lcr::ActionInstruction::MethodCall { .. }) => todo!(),
+        lcr::Instruction::Construct(lcr::ConstructInstruction::Data { .. }) => todo!(),
+        lcr::Instruction::Construct(lcr::ConstructInstruction::Array { .. }) => todo!(),
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::Assignment { what: _, to }) => estimate_size(to, func_map) + 2,
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { .. }) => 2,
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { value, label: _ }) => 2 + value.as_ref().map_or(0, |v| estimate_size(v, func_map)),
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::Return { value }) => value.as_ref().map_or(0, |a| estimate_size(a, func_map)) + 2,
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::Throw { .. }) => todo!(),
+        lcr::Instruction::DoStatement(lcr::StatementInstruction::VmDebug { .. }) => 2,
+    }
+}
+
+fn estimate_size(block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>) -> usize {
+    match &*block.tag {
+        &lcr::SBlockTag::Simple { ref code, ref decls, closed } =>
+            decls.len() + if decls.is_empty() { 0 } else { 1 } + {
+                let last_i = code.len() - 1;
+
+                code.iter().enumerate()
+                    .map(|(i, c)| {
+                        let ret_smth = matches!(returns_something(&lcr::SBlock {
+                            label: None,
+                            tag: Box::new(lcr::SBlockTag::Simple {
+                                closed: false,
+                                decls: vec![],
+                                code: vec![c.clone()],
+                            }),
+                        }, func_map), Some(true));
+
+                        estimate_size_instr(c, func_map) + if ret_smth && (closed || i != last_i) { 1 } else { 0 }
+                    })
+                    .sum::<usize>()
+            },
+        lcr::SBlockTag::Condition { code, check, otherwise } =>
+            estimate_size(check, func_map) + otherwise.as_ref().map_or_else(
+                || estimate_size(code, func_map) + 4,
+                |o| estimate_size(code, func_map) + estimate_size(o, func_map) + 5
+            ),
+        lcr::SBlockTag::Selector { .. } => todo!(),
+        lcr::SBlockTag::Handle { .. } => todo!(),
+        lcr::SBlockTag::Unhandle { .. } => todo!(),
+        lcr::SBlockTag::Loop { code } => estimate_size(code, func_map) + 1,
+        lcr::SBlockTag::While { check, code, do_first: _ } => estimate_size(check, func_map) + estimate_size(code, func_map) + 4,
         lcr::SBlockTag::Over { .. } => todo!(),
     }
 }

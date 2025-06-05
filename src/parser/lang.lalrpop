@@ -354,7 +354,7 @@ AsmOp: AsmOp<'input> = {
     "jump" <to:Either<AsmPos, Label>> <check:LiteralBool?> => AsmOp::Jump {<>},
 };
 AsmInstruction: AsmInstruction<'input> = <label:Label?> <op:AsmOp> => AsmInstruction {<>};
-AsmBlock: AsmBlock<'input> = "asm" "{" <instrs:(<AsmInstruction> ";")*> "}" => AsmBlock {<>};
+AsmBlock: AsmBlock<'input> = "asm" "{" <instrs:AsmInstruction*> "}" => AsmBlock {<>};
 
 // |...| { ... }
 Closure: Closure<'input> = <sig:Signature> <code:Either<StatementBlock, AsmBlock>> => Closure {<>};

@@ -30,6 +30,7 @@ pub enum SysCallId {
     PrintLine,
     Debug,
     Add,
+    Equal,
 }
 
 impl TryFrom<Id> for SysCallId {
@@ -44,6 +45,7 @@ impl TryFrom<Id> for SysCallId {
                     1 => Self::PrintLine,
                     2 => Self::Debug,
                     3 => Self::Add,
+                    4 => Self::Equal,
                     _ => Err(())?,
                 }
         })
@@ -295,7 +297,7 @@ impl CrateId {
         debug_assert_eq!(ver.len(), COEFS_H.len());
         debug_assert_eq!(ver.len(), COEFS_B.len());
 
-        ver.into_iter().zip(COEFS_H.into_iter()).zip(COEFS_B.into_iter())
+        ver.into_iter().zip(COEFS_H).zip(COEFS_B)
             .fold(INIT, |h, ((b, k_h), k_b)| h.wrapping_mul(k_h) ^ (b as u32).wrapping_mul(k_b))
     }
 }
@@ -521,11 +523,24 @@ impl FunctionScope {
                             let res = match (a, b) {
                                 (&Object::Fundamental(ConstItem::Integer(Integer::I64(a))), &Object::Fundamental(ConstItem::Integer(Integer::I64(b)))) =>
                                     Object::Fundamental(ConstItem::Integer(Integer::I64(a + b))),
-                                _ => panic!("mismatch"),
+                                _ => panic!("mismatch (a: {a:?} b: {b:?})"),
                             };
                             
                             vm.push_new(res);
                         },
+                        SysCallId::Equal => {
+                            let a = &vm.memory[vm.stack[1]];
+                            let b = &vm.memory[vm.stack[0]];
+
+                            // todo implement all of the pairs
+                            let res = match (a, b) {
+                                (&Object::Fundamental(ConstItem::Integer(Integer::I64(a))), &Object::Fundamental(ConstItem::Integer(Integer::I64(b)))) =>
+                                    Object::System(SystemObj::Bool(a == b)),
+                                _ => panic!("mismatch (a: {a:?} b: {b:?})"),
+                            };
+
+                            vm.push_new(res);
+                        }
                     }
                 },
                 Op::Return => {

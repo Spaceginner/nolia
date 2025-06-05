@@ -1,22 +1,43 @@
 fnc println |n: %i 64|
 asm {
-    syscall println;
+    syscall println
 }
 
 fnc add |a: %i 64, b: %i 64| -> %i 64
 asm {
-    syscall add;
+    syscall add
 }
 
-fnc funny |check: %bool| -> %i 64 {
-    #if check {
-        return 5;
-    };
-    
-    6
+fnc eq |a: %i 64, b: %i 64| -> %bool
+asm {
+    syscall eq
+}
+
+
+fnc not |b: %bool| -> %bool
+asm {
+    jump $invert true
+    loadsysitem true_
+    return
+    $invert loadsysitem false_
 }
 
 fnc entry || {
-    println(funny(false));  // 6
-    println(funny(true));  // 5
+    let c: %i 64 = 0;
+
+//    #while not(eq(c, 5)) {
+//        c = add(c, 1);
+//        println(c);
+//    };
+
+    #$w {
+        #if eq(c, 5) {
+            escape $w;
+        };
+
+        c = add(c, 1);
+        println(c);
+
+        repeat $w;
+    };
 }

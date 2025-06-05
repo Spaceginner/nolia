@@ -1,4 +1,5 @@
 #![feature(let_chains)]
+#![feature(if_let_guard)]
 
 use compiler::lcr::Path;
 use crate::compiler::{Compiler, CrateSource};
