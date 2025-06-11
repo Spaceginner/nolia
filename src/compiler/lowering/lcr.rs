@@ -152,11 +152,11 @@ pub (in super::super) enum StatementInstruction {
         to: SBlock,
     },
     Repeat {
-        label: Option<Box<str>>,
+        label: Box<str>,
     },
     Escape {
         value: Option<SBlock>,
-        label: Option<Box<str>>,
+        label: Box<str>,
     },
     Return {
         value: Option<SBlock>,
@@ -240,7 +240,6 @@ pub (in super::super) enum AsmOp {
     LoadImplementation { of: Either<(AsmId, u32), Path> },
     LoadSystemItem { id: Either<AsmId, Box<str>> },
     Access { id: Either<u32, Path> },
-    GetType,
     Call { which: usize },
     SystemCall { id: Either<AsmId, Box<str>> },
     Return,

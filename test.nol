@@ -1,14 +1,14 @@
-fnc println |n: %i 64|
+fnc println |n: %i64|
 asm {
     syscall println
 }
 
-fnc add |a: %i 64, b: %i 64| -> %i 64
+fnc add |a: %i64, b: %i64| -> %i64
 asm {
     syscall add
 }
 
-fnc eq |a: %i 64, b: %i 64| -> %bool
+fnc eq |a: %i64, b: %i64| -> %bool
 asm {
     syscall eq
 }
@@ -23,7 +23,7 @@ asm {
 }
 
 fnc entry || {
-    let c: %i 64 = 0;
+    let c: %i64 = 0i64;
 
 //    #while not(eq(c, 5)) {
 //        c = add(c, 1);

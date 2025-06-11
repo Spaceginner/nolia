@@ -211,10 +211,10 @@ pub enum Statement<'s> {
     },
     Escape {
         value: Option<Expression<'s>>,
-        label: Option<&'s str>,
+        label: &'s str,
     },
     Repeat {
-        label: Option<&'s str>,
+        label: &'s str,
     },
     Return {
         value: Option<Expression<'s>>,
@@ -247,7 +247,6 @@ pub enum AsmOp<'s> {
     LoadImplementation { of: Either<(AsmId, u32), Item<'s>> },
     LoadSystemItem { id: Either<AsmId, &'s str> },
     Access { id: Either<u32, Item<'s>> },
-    GetType,
     Call { which: usize },
     SystemCall { id: Either<AsmId, &'s str> },
     Return,

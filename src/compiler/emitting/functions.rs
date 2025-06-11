@@ -108,7 +108,7 @@ fn compile_asm_func(
                 id: id.either(
                     |id| id.into(),
                     |name| match &name[..] {  // fixme soft-code sysitem name matching
-                        "false_" => vm::SysItemId::False,
+                        "false_" => vm::SysItemId::False,  // todo come up with a better solution for this
                         "true_" => vm::SysItemId::True,
                         "void" => vm::SysItemId::Void,
                         _ => panic!("unknown sys item")
@@ -116,7 +116,6 @@ fn compile_asm_func(
                 ),
             },
         lcr::AsmOp::Access { .. } => { todo!("access instr is not supported") }
-        lcr::AsmOp::GetType => vm::Op::GetType,
         lcr::AsmOp::Call { which } => vm::Op::Call { which },
         lcr::AsmOp::SystemCall { id } =>
             vm::Op::SystemCall {
@@ -128,6 +127,7 @@ fn compile_asm_func(
                         "debug" => vm::SysCallId::Debug,
                         "add" => vm::SysCallId::Add,
                         "eq" => vm::SysCallId::Equal,
+                        "gettype" => vm::SysCallId::GetType,
                         _ => panic!("unknown sys call")
                     }
                 )
@@ -151,7 +151,6 @@ fn compile_asm_func(
 
 fn compile_instruction(
     instr: lcr::Instruction,
-    cur_block_info: &BlockInfo,
     this_instr_at: usize,
     ret_type: &lcr::TypeRef,
     var_scope: &mut (HashMap<Box<str>, (usize, lcr::TypeRef)>, usize),
@@ -278,7 +277,7 @@ fn compile_instruction(
             }
         },
         lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label }) => {
-            let block_info = label.map_or(cur_block_info, |l| &block_stack.iter().rev().find(|&(n, _)| l == *n).unwrap().1);
+            let block_info = &block_stack.iter().rev().find(|&(n, _)| label == *n).unwrap().1;
             vec![
                 vm::Op::Pop {
                     count: var_scope.1 - block_info.var_stack,
@@ -300,7 +299,7 @@ fn compile_instruction(
                 vec![]
             };
             
-            let block_info = label.map_or(cur_block_info, |l| &block_stack.iter().rev().find(|&(n, _)| l == *n).unwrap().1);
+            let block_info = &block_stack.iter().rev().find(|&(n, _)| label == *n).unwrap().1;
             
             if !v_type.within(&block_info.self_type) {
                 panic!("escape type mismatch");
@@ -434,7 +433,7 @@ fn compile_s_block(
                         var_scope,
                         item_map,
                     ).within(&lcr::TypeRef::Nothing);
-                    let mut code = compile_instruction(instr, &cur_block_info, starts_at + offset, ret_type, var_scope, block_stack, func_map, item_map, items);
+                    let mut code = compile_instruction(instr,starts_at + offset, ret_type, var_scope, block_stack, func_map, item_map, items);
                     offset += code.len();
                     if ret_something && (closed || i != last_instr_i) {
                         var_scope.1 -= 1;

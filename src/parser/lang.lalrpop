@@ -68,13 +68,18 @@ Generics: Vec<Type<'input>> = "<" <Comma<Type>> ">";
 
 ProtocolType: ProtocolType<'input> = <base:Item> <generics:OptDefault<Generics>> => ProtocolType {<>};
 
-IntegerTypeSize: IntegerTypeSize = r"\d[\d_]*" => match <> {
-    "8" => IntegerTypeSize::Byte,
-    "16" => IntegerTypeSize::Word,
-    "32" => IntegerTypeSize::DWord,
-    "64" => IntegerTypeSize::QWord,
-    "128" => IntegerTypeSize::OWord,
-    _ => panic!("invalid integer type size")
+#[inline]
+IntegerType: PrimitiveType = {
+    "i8" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Byte },
+    "i16" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Word },
+    "i32" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::DWord },
+    "i64" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::QWord },
+    "i128" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::OWord },
+    "u8" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Byte },
+    "u16" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Word },
+    "u32" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::DWord },
+    "u64" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::QWord },
+    "u128" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::OWord },
 };
 
 PrimitiveType: PrimitiveType = {
@@ -82,8 +87,7 @@ PrimitiveType: PrimitiveType = {
     "char" => PrimitiveType::Char,
     "bool" => PrimitiveType::Bool,
     "void" => PrimitiveType::Void,
-    "i" <size:IntegerTypeSize> => PrimitiveType::Integer { signed: true, size },
-    "u" <size:IntegerTypeSize> => PrimitiveType::Integer { signed: false, size },
+    IntegerType,
 };
 
 Type: Type<'input> = {
@@ -122,26 +126,22 @@ LiteralIntegerRaw: (&'input str, &'input str) = {
     r"0x\s*[[:xdigit:]][[[:xdigit:]]_]*" => ("0x", <>[2..].trim()),
 };
 #[inline]
-LiteralIntegerSuffixSize: &'input str = r"\d[\d_]*";
-#[inline]
-LiteralIntegerSuffixSigness: &'input str = { "i", "u" };
-#[inline]
-LiteralIntegerSuffix: (&'input str, &'input str) = LiteralIntegerSuffixSize LiteralIntegerSuffixSigness;
+LiteralIntegerSuffix: &'input str = { "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128" };
 LiteralInteger: LiteralInteger = <sign:LiteralIntegerSign?> <int:LiteralIntegerRaw> <kind:LiteralIntegerSuffix?> => {
-    let kind = kind.unwrap_or(("i", "64"));
+    let kind = kind.unwrap_or("i64");
     let sign = sign.unwrap_or("+");
     let int = (int.0, format!("{sign}{}", int.1));
     let parser = match kind {
-        ("i", "8") => |n, r| Ok::<_, std::num::ParseIntError>(LiteralInteger::I8(i8::from_str_radix(n, r)?)),
-        ("i", "16") => |n, r| Ok(LiteralInteger::I16(i16::from_str_radix(n, r)?)),
-        ("i", "32") => |n, r| Ok(LiteralInteger::I32(i32::from_str_radix(n, r)?)),
-        ("i", "64") => |n, r| Ok(LiteralInteger::I64(i64::from_str_radix(n, r)?)),
-        ("i", "128") => |n, r| Ok(LiteralInteger::I128(i128::from_str_radix(n, r)?)),
-        ("u", "8") => |n, r| Ok(LiteralInteger::U8(u8::from_str_radix(n, r)?)),
-        ("u", "16") => |n, r| Ok(LiteralInteger::U16(u16::from_str_radix(n, r)?)),
-        ("u", "32") => |n, r| Ok(LiteralInteger::U32(u32::from_str_radix(n, r)?)),
-        ("u", "64") => |n, r| Ok(LiteralInteger::U64(u64::from_str_radix(n, r)?)),
-        ("u", "128") => |n, r| Ok(LiteralInteger::U128(u128::from_str_radix(n, r)?)),
+        "i8" => |n, r| Ok::<_, std::num::ParseIntError>(LiteralInteger::I8(i8::from_str_radix(n, r)?)),
+        "i16" => |n, r| Ok(LiteralInteger::I16(i16::from_str_radix(n, r)?)),
+        "i32" => |n, r| Ok(LiteralInteger::I32(i32::from_str_radix(n, r)?)),
+        "i64" => |n, r| Ok(LiteralInteger::I64(i64::from_str_radix(n, r)?)),
+        "i128" => |n, r| Ok(LiteralInteger::I128(i128::from_str_radix(n, r)?)),
+        "u8" => |n, r| Ok(LiteralInteger::U8(u8::from_str_radix(n, r)?)),
+        "u16" => |n, r| Ok(LiteralInteger::U16(u16::from_str_radix(n, r)?)),
+        "u32" => |n, r| Ok(LiteralInteger::U32(u32::from_str_radix(n, r)?)),
+        "u64" => |n, r| Ok(LiteralInteger::U64(u64::from_str_radix(n, r)?)),
+        "u128" => |n, r| Ok(LiteralInteger::U128(u128::from_str_radix(n, r)?)),
         _ => panic!(),
     };
 
@@ -298,9 +298,9 @@ Statement: Statement<'input> = {
     // let var: Type = "abc";
     "let" <what:Capture> <with:("=" <Expression>)?> => Statement::Declaration {<>},
     // break $outside some
-    "escape" <label:Label?> <value:Expression?> => Statement::Escape {<>},
+    "escape" <label:Label> <value:Expression?> => Statement::Escape {<>},
     // continue $outside
-    "repeat" <label:Label?> => Statement::Repeat {<>},
+    "repeat" <label:Label> => Statement::Repeat {<>},
     // return 42
     "return" <value:Expression?> => Statement::Return {<>},
     // throw SomeError
@@ -343,7 +343,6 @@ AsmOp: AsmOp<'input> = {
     "loadimpl" <of:Either<(AsmId AsmU32), Item>> => AsmOp::LoadImplementation {<>},
     "loadsysitem" <id:Either<AsmId, Ident>> => AsmOp::LoadSystemItem {<>},
     "access" <id:Either<AsmU32, Item>> => AsmOp::Access {<>},
-    "gettype" => AsmOp::GetType,
     "call" <which:AsmPos> => AsmOp::Call {<>},
     "syscall" <id:Either<AsmId, Ident>> => AsmOp::SystemCall {<>},
     "return" => AsmOp::Return,

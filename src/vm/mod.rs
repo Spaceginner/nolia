@@ -31,6 +31,7 @@ pub enum SysCallId {
     Debug,
     Add,
     Equal,
+    GetType
 }
 
 impl TryFrom<Id> for SysCallId {
@@ -46,6 +47,7 @@ impl TryFrom<Id> for SysCallId {
                     2 => Self::Debug,
                     3 => Self::Add,
                     4 => Self::Equal,
+                    5 => Self::GetType,
                     _ => Err(())?,
                 }
         })
@@ -90,7 +92,6 @@ pub enum Op {
     LoadImplementation { id: Id, func: u32 },
     LoadSystemItem { id: SysItemId },
     Access { field: u32 },
-    GetType,
     Call { which: usize },
     SystemCall { id: SysCallId },
     Return,
@@ -483,10 +484,6 @@ impl FunctionScope {
                         _ => panic!("doesnt have any fields")
                     }
                 },
-                Op::GetType => {
-                    let top_obj = &vm.memory[vm.stack[0]];
-                    vm.push_new(Object::System(SystemObj::Type(top_obj.get_type())));
-                },
                 Op::Call { which } => {
                     match &vm.memory[vm.stack[which]] {
                         Object::Function(func) => res = ControlFlow::Continue(Some(FunctionScope::new(func.clone()))),
@@ -509,7 +506,7 @@ impl FunctionScope {
                             eprintln!("------------ DEBUG ------------");
                             eprintln!("DCode: {}", match vm.memory[vm.stack[0]] {
                                 Object::Fundamental(ConstItem::Integer(Integer::U32(n))) => n,
-                                _ => 0,
+                                _ => panic!("invalid type"),
                             });
                             eprintln!("{:#?}", vm.memory());
                             eprintln!("{:?}", vm.stack());
@@ -540,7 +537,11 @@ impl FunctionScope {
                             };
 
                             vm.push_new(res);
-                        }
+                        },
+                        SysCallId::GetType => {
+                            let top_obj = &vm.memory[vm.stack[0]];
+                            vm.push_new(Object::System(SystemObj::Type(top_obj.get_type())));
+                        },
                     }
                 },
                 Op::Return => {

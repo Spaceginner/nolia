@@ -107,11 +107,11 @@ fn transform_stmt_b(root: &lcr::Path, stmt_b: ast::StatementBlock<'_>) -> lcr::S
                 ast::Statement::Escape { value, label } =>
                     lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape {
                         value: value.map(|e| transform_expr(root, e)),
-                        label: label.map(|s| s.into()),
+                        label: label.into(),
                     }),
                 ast::Statement::Repeat { label } =>
                     lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat {
-                        label: label.map(|s| s.into()),
+                        label: label.into(),
                     }),
                 ast::Statement::Return { value } =>
                     lcr::Instruction::DoStatement(lcr::StatementInstruction::Return {
@@ -339,7 +339,6 @@ fn transform_asm_b(root: &lcr::Path, asm_b: ast::AsmBlock) -> lcr::AsmBlock {
                     lcr::AsmOp::Access {
                         id: id.map_right(|f| transform_item(root, f)),
                     },
-                ast::AsmOp::GetType => lcr::AsmOp::GetType,
                 ast::AsmOp::Call { which } => lcr::AsmOp::Call { which },
                 ast::AsmOp::SystemCall { id } =>
                     lcr::AsmOp::SystemCall {
