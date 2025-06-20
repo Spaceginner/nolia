@@ -238,23 +238,28 @@ LiteralExpression: LiteralExpression = {
 
 Label: &'input str = "$" <Ident>;
 
+#[inline]
+IfUnless: &'input str = { "if", "unless" };
+#[inline]
+WhileUntil: &'input str = { "while", "until" };
+
 BlockExpressionKind: BlockExpressionKind<'input> = {
     // { ... }
     <code:StatementBlock> => BlockExpressionKind::Simple {<>},
     // if true.eq(true) { ... } else { ... }
-    "if" <check:Expression> <code:StatementBlock> <otherwise:("else" <StatementBlock>)?> => BlockExpressionKind::Condition {<>},
-    // sel val { of true { ... } ... of else { ... } }
-    "sel" <of:Expression> "{" <cases:("of" <Expression> <StatementBlock>)*> <fallback:("of" "else" <StatementBlock>)?> "}" => BlockExpressionKind::Selector {<>},
+    <inverted:IfUnless> <check:Expression> <code:StatementBlock> <otherwise:("else" <StatementBlock>)?> => BlockExpressionKind::Condition { check, code, otherwise, inverted: inverted == "unless"},
+    // sel val { of true { ... } ... or else { ... } }
+    "sel" <of:Expression> "{" <cases:("of" <Expression> <StatementBlock>)*> <fallback:("or" "else" <StatementBlock>)?> "}" => BlockExpressionKind::Selector {<>},
     // loop { ... }
     "loop" <code:StatementBlock> => BlockExpressionKind::Loop {<>},
     // while cond { ... }
-    "while" <check:Expression> <code:StatementBlock> => BlockExpressionKind::While { <>, do_first: false },
+    <inverted:WhileUntil> <check:Expression> <code:StatementBlock> => BlockExpressionKind::While { check, code, inverted: inverted == "until", do_first: false },
     // do { ... } while { ... }
-    "do" <code:StatementBlock> "while" <check:StatementBlock> => BlockExpressionKind::While { code, check: check.into(), do_first: true },
+    "do" <code:StatementBlock> <inverted:WhileUntil> <check:StatementBlock> => BlockExpressionKind::While { code, check: check.into(), inverted: inverted == "until", do_first: true },
     // over [1, 2, 3] with var { ... }
     "over" <what:Expression> "with" <with:Ident> <code:StatementBlock> => BlockExpressionKind::Over {<>},
-    // handle func() { !Error with err { ... } ... !else with err { ... } }
-    "handle" <of:Expression> "{" <handlers:("!" <Item> "with" <Ident> <StatementBlock>)*> <fallback:("!" "else" "with" <Ident> <StatementBlock>)?> "}" => BlockExpressionKind::Handle {<>},
+    // handle func() { !Error with err { ... } ... else with err { ... } }
+    "handle" <of:Expression> "{" <handlers:("!" <Item> "with" <Ident> <StatementBlock>)*> <fallback:("else" "with" <Ident> <StatementBlock>)?> "}" => BlockExpressionKind::Handle {<>},
     // unhandle { foobar() }
     "unhandle" <code:StatementBlock> => BlockExpressionKind::Unhandle {<>},
 }

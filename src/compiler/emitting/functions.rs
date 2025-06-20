@@ -302,7 +302,7 @@ fn compile_instruction(
             let block_info = &block_stack.iter().rev().find(|&(n, _)| label == *n).unwrap().1;
             
             if !v_type.within(&block_info.self_type) {
-                panic!("escape type mismatch");
+                panic!("escape type mismatch (expected: {:?}, got: {:?})", &block_info.self_type, v_type);
             };
             
             let ret_count = if block_info.self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 };
@@ -399,6 +399,7 @@ fn compile_s_block(
     };
 
     match *s_block.tag {
+        lcr::SBlockTag::Block { block } => compile_s_block(block, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items),
         lcr::SBlockTag::Simple { code, mut decls, closed } => {
             let mut code_offset = 0;
             let init_code = decls.iter_mut()
@@ -459,7 +460,7 @@ fn compile_s_block(
 
             [init_code, main_code, deinit_code].concat()
         },
-        lcr::SBlockTag::Condition { code, check, otherwise } => {
+        lcr::SBlockTag::Condition { code, check, otherwise, inverted } => {
             if let Some(b) = otherwise.as_ref()
                 && !resolve_type(b, func_map, var_scope, item_map).within(&cur_block_info.self_type) {
                 panic!("branch is not of the same return type");
@@ -487,7 +488,7 @@ fn compile_s_block(
                     vec![
                         vm::Op::Jump {
                             to: main_pos - 1,
-                            check: Some(true),
+                            check: Some(!inverted),
                         },
                         vm::Op::Jump {
                             to: after_main_pos,
@@ -524,7 +525,7 @@ fn compile_s_block(
                         // todo introduce a jump-else kind of instr
                         vm::Op::Jump {
                             to: after_main_pos,
-                            check: Some(false),
+                            check: Some(inverted),
                         },
                         vm::Op::Pop {
                             count: 1,
@@ -548,91 +549,6 @@ fn compile_s_block(
         lcr::SBlockTag::Selector { .. } => todo!(),
         lcr::SBlockTag::Handle { .. } => todo!(),
         lcr::SBlockTag::Unhandle { .. } => todo!(),
-        lcr::SBlockTag::Loop { code } => {
-            if !resolve_type(&code, func_map, var_scope, item_map).within(&lcr::TypeRef::Nothing) {
-                panic!("code mustn't return anything (only through escaping)");
-            };
-
-            [
-                compile_s_block(code, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items),
-                vec![vm::Op::Jump {
-                    to: starts_at,
-                    check: None
-                }],
-            ].concat()
-        },
-        // todo merge with simple loop
-        lcr::SBlockTag::While { code, check, do_first } => {
-            if !resolve_type(&code, func_map, var_scope, item_map).within(&lcr::TypeRef::Nothing) {
-                panic!("code mustn't return anything");
-            };
-
-            if !resolve_type(&check, func_map, var_scope, item_map).within(&lcr::TypeRef::Primitive(lcr::PrimitiveType::Bool)) {
-                panic!("check is not bool");
-            };
-
-            if do_first {
-                let main_pos = starts_at + 2;
-                let main_code = compile_s_block(code, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items);
-                let check_pos = main_pos + main_code.len();
-                let check_code = compile_s_block(check, check_pos, ret_type, var_scope, block_stack, func_map, item_map, items);
-                var_scope.1 -= 1;
-
-                [
-                    vec![
-                        vm::Op::Jump {
-                            to: main_pos,
-                            check: None,
-                        },
-                        vm::Op::Pop {
-                            count: 1,
-                            offset: 0,
-                        },
-                    ],
-                    main_code,
-                    check_code,
-                    vec![
-                        vm::Op::Jump {
-                            to: main_pos - 1,
-                            check: Some(true),
-                        },
-                        vm::Op::Pop {
-                            count: 1,
-                            offset: 0,
-                        },
-                    ],
-                ].concat()
-            } else {
-                let check_code = compile_s_block(check, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items);
-                var_scope.1 -= 1;
-                let main_pos = starts_at + check_code.len() + 2;
-                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, block_stack, func_map, item_map, items);
-                let loop_end_pos = main_pos + main_code.len() + 2;
-
-                [
-                    check_code,
-                    vec![
-                        vm::Op::Jump {
-                            to: main_pos,
-                            check: Some(true),
-                        },
-                        vm::Op::Jump {
-                            to: loop_end_pos,
-                            check: None,
-                        },
-                        vm::Op::Pop {
-                            count: 1,
-                            offset: 0,
-                        }
-                    ],
-                    main_code,
-                    vec![vm::Op::Jump {
-                        to: starts_at,
-                        check: None,
-                    }],
-                ].concat()
-            }
-        },
         lcr::SBlockTag::Over { .. } => todo!(),
     }
 }
@@ -658,6 +574,7 @@ fn estimate_size_instr(instr: &lcr::Instruction, func_map: &HashMap<lcr::Path, (
 
 fn estimate_size(block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>) -> usize {
     match &*block.tag {
+        lcr::SBlockTag::Block { block } => estimate_size(block, func_map),
         &lcr::SBlockTag::Simple { ref code, ref decls, closed } =>
             decls.len() + if decls.is_empty() { 0 } else { 1 } + {
                 let last_i = code.len() - 1;
@@ -677,7 +594,7 @@ fn estimate_size(block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr:
                     })
                     .sum::<usize>()
             },
-        lcr::SBlockTag::Condition { code, check, otherwise } =>
+        lcr::SBlockTag::Condition { code, check, otherwise, inverted: _ } =>
             estimate_size(check, func_map) + otherwise.as_ref().map_or_else(
                 || estimate_size(code, func_map) + 4,
                 |o| estimate_size(code, func_map) + estimate_size(o, func_map) + 5
@@ -685,8 +602,6 @@ fn estimate_size(block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr:
         lcr::SBlockTag::Selector { .. } => todo!(),
         lcr::SBlockTag::Handle { .. } => todo!(),
         lcr::SBlockTag::Unhandle { .. } => todo!(),
-        lcr::SBlockTag::Loop { code } => estimate_size(code, func_map) + 1,
-        lcr::SBlockTag::While { check, code, do_first: _ } => estimate_size(check, func_map) + estimate_size(code, func_map) + 4,
         lcr::SBlockTag::Over { .. } => todo!(),
     }
 }

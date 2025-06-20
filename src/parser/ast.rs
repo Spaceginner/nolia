@@ -94,6 +94,7 @@ pub enum BlockExpressionKind<'s> {
         check: Expression<'s>,
         code: StatementBlock<'s>,
         otherwise: Option<StatementBlock<'s>>,
+        inverted: bool,
     },
     Selector {
         of: Expression<'s>,
@@ -114,6 +115,7 @@ pub enum BlockExpressionKind<'s> {
         code: StatementBlock<'s>,
         check: Expression<'s>,
         do_first: bool,
+        inverted: bool,
     },
     Over {
         code: StatementBlock<'s>,

@@ -3,6 +3,7 @@ pub(super) mod conversions;
 pub mod path;
 
 use std::collections::HashMap;
+use rand::distr::SampleString;
 use crate::parser::ast;
 use super::Compiler;
 
@@ -169,11 +170,12 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
         ast::Expression::Block(block_e) => {
             let tag = match *block_e.kind {
                 ast::BlockExpressionKind::Simple { code } => *transform_stmt_b(root, code).tag,
-                ast::BlockExpressionKind::Condition { code, check, otherwise } =>
+                ast::BlockExpressionKind::Condition { code, check, otherwise, inverted } =>
                     lcr::SBlockTag::Condition {
                         code: transform_stmt_b(root, code),
                         check: transform_expr(root, check),
                         otherwise: otherwise.map(|sb| transform_stmt_b(root, sb)),
+                        inverted,
                     },
                 ast::BlockExpressionKind::Selector { of, fallback, cases } =>
                     lcr::SBlockTag::Selector {
@@ -196,16 +198,80 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
                     lcr::SBlockTag::Unhandle {
                         what: transform_stmt_b(root, code)
                     },
-                ast::BlockExpressionKind::Loop { code } =>
-                    lcr::SBlockTag::Loop {
-                        code: transform_stmt_b(root, code),
-                    },
-                ast::BlockExpressionKind::While { check, code, do_first } =>
-                    lcr::SBlockTag::While {
-                        code: transform_stmt_b(root, code),
-                        check: transform_expr(root, check),
-                        do_first,
-                    },
+                ast::BlockExpressionKind::Loop { code } => {
+                    let label: Box<str> = rand::distr::Alphabetic::default().sample_string(&mut rand::rng(), 32).into();  // fixme come up with a REALLY better idea, perhaps level-based labels?
+                    
+                    lcr::SBlockTag::Block {
+                        block: lcr::SBlock {
+                            label: label.clone().into(),
+                            tag: Box::new(lcr::SBlockTag::Simple {
+                                closed: false,
+                                decls: vec![],
+                                code: vec![
+                                    lcr::Instruction::DoBlock(transform_stmt_b(root, code)),
+                                    lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label }),
+                                ],
+                            })
+                        }
+                    }
+                }
+                ast::BlockExpressionKind::While { check, code, do_first, inverted } => {
+                    let label: Box<str> = rand::distr::Alphabetic::default().sample_string(&mut rand::rng(), 32).into();  // fixme come up with a REALLY better idea, perhaps level-based labels?
+                    
+                    lcr::SBlockTag::Block {
+                        block: lcr::SBlock {
+                            label: Some(label.clone()),
+                            tag: Box::new(lcr::SBlockTag::Simple {
+                                closed: false,
+                                decls: vec![],
+                                code:
+                                    if !do_first {
+                                        vec![
+                                            lcr::Instruction::DoBlock(lcr::SBlock {
+                                                label: None,
+                                                tag: Box::new(lcr::SBlockTag::Condition {
+                                                    inverted: !inverted,
+                                                    otherwise: None,
+                                                    check: transform_expr(root, check),
+                                                    code: lcr::SBlock {
+                                                        label: None,
+                                                        tag: Box::new(lcr::SBlockTag::Simple {
+                                                            closed: false,
+                                                            decls: vec![],
+                                                            code: vec![lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { value: None, label: label.clone() })],
+                                                        }),
+                                                    }
+                                                })
+                                            }),
+                                            lcr::Instruction::DoBlock(transform_stmt_b(root, code)),
+                                            lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label })
+                                        ]
+                                    } else {
+                                        vec![
+                                            lcr::Instruction::DoBlock(transform_stmt_b(root, code)),
+                                            lcr::Instruction::DoBlock(lcr::SBlock {
+                                                label: None,
+                                                tag: Box::new(lcr::SBlockTag::Condition {
+                                                    inverted,
+                                                    otherwise: None,
+                                                    check: transform_expr(root, check),
+                                                    code: lcr::SBlock {
+                                                        label: None,
+                                                        tag: Box::new(lcr::SBlockTag::Simple {
+                                                            closed: false,
+                                                            decls: vec![],
+                                                            code: vec![lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label })],
+                                                        }),
+                                                    }
+                                                })
+                                            }),
+                                        ]
+                                    }
+                            })
+                        }
+                    }
+                },
+                // todo after protos are impl'ed, lower into a simple loop
                 ast::BlockExpressionKind::Over { code, what, with } =>
                     lcr::SBlockTag::Over {
                         code: transform_stmt_b(root, code),

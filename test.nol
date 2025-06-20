@@ -25,19 +25,8 @@ asm {
 fnc entry || {
     let c: %i64 = 0i64;
 
-//    #while not(eq(c, 5)) {
-//        c = add(c, 1);
-//        println(c);
-//    };
-
-    #$w {
-        #if eq(c, 5) {
-            escape $w;
-        };
-
+    #while not(eq(c, 5)) {
         c = add(c, 1);
         println(c);
-
-        repeat $w;
     };
 }

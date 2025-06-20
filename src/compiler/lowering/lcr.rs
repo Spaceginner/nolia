@@ -181,15 +181,21 @@ pub (in super::super) enum Instruction {
 
 #[derive(Debug, Clone)]
 pub (in super::super) enum SBlockTag {
+    // used internally when desugaring to not completely spell out simple block each time just to put a label
+    Block {
+        block: SBlock,
+    },
     Simple {
         decls: Vec<Declaration>,
         code: Vec<Instruction>,
         closed: bool,
     },
+    // todo later merge with selector
     Condition {
         check: SBlock,
         code: SBlock,
         otherwise: Option<SBlock>,
+        inverted: bool,
     },
     Selector {
         of: SBlock,
@@ -201,17 +207,11 @@ pub (in super::super) enum SBlockTag {
         handlers: Vec<(ConcreteTypeId, Box<str>, SBlock)>,
         fallback: Option<(Box<str>, SBlock)>,
     },
+    // todo later merge with handle
     Unhandle {
         what: SBlock,
     },
-    Loop {
-        code: SBlock,
-    },
-    While {
-        code: SBlock,
-        check: SBlock,
-        do_first: bool,
-    },
+    // todo later merge with simple block
     Over {
         code: SBlock,
         what: SBlock,
