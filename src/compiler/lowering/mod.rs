@@ -199,7 +199,7 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
                         what: transform_stmt_b(root, code)
                     },
                 ast::BlockExpressionKind::Loop { code } => {
-                    let label: Box<str> = rand::distr::Alphabetic::default().sample_string(&mut rand::rng(), 32).into();  // fixme come up with a REALLY better idea, perhaps level-based labels?
+                    let label: Box<str> = rand::distr::Alphabetic.sample_string(&mut rand::rng(), 32).into();  // fixme come up with a REALLY better idea, perhaps level-based labels?
                     
                     lcr::SBlockTag::Block {
                         block: lcr::SBlock {
@@ -216,7 +216,7 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
                     }
                 }
                 ast::BlockExpressionKind::While { check, code, do_first, inverted } => {
-                    let label: Box<str> = rand::distr::Alphabetic::default().sample_string(&mut rand::rng(), 32).into();  // fixme come up with a REALLY better idea, perhaps level-based labels?
+                    let label: Box<str> = rand::distr::Alphabetic.sample_string(&mut rand::rng(), 32).into();  // fixme come up with a REALLY better idea, perhaps level-based labels?
                     
                     lcr::SBlockTag::Block {
                         block: lcr::SBlock {
