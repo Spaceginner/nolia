@@ -533,7 +533,75 @@ fn compile_s_block(
                 ].concat()
             }
         },
-        lcr::SBlockTag::Selector { .. } => todo!(),
+        lcr::SBlockTag::Selector { of, cases, fallback } => {
+            // of()
+            // cases n:
+            //      check()
+            //      syscall equal
+            //      jump $fallthrough false
+            //      pop 1 0  // pop check
+            //      code()
+            //      jump $deinit
+            // $fallthrough
+            // pop 1 0  // pop check
+            // ... other cases ...
+            // fallback:
+            //      fallback();
+            // $deinit
+            //      pop 1 1/0;  // pop of value
+
+            let of_code = compile_s_block(of, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items);
+            let mut case_offset = starts_at + of_code.len();
+            let deinit_pos = cur_block_info.end - 1;
+
+            let mut cases_code = Vec::new();
+            for (check, action) in cases {
+                let check_size = estimate_size(&check, func_map);
+                let fallthrough_pos = case_offset + check_size + 3 + estimate_size(&action, func_map) + 1;
+
+                let mut case_code = [
+                    compile_s_block(check, case_offset, ret_type, var_scope, block_stack, func_map, item_map, items),
+                    vec![
+                        vm::Op::SystemCall { id: vm::SysCallId::Equal },
+                        vm::Op::Jump {
+                            to: fallthrough_pos,
+                            check: Some(false),
+                        },
+                        vm::Op::Pop {
+                            count: 2,
+                            offset: 0,
+                        },
+                    ],
+                    compile_s_block(action, case_offset + check_size + 3, ret_type, var_scope, block_stack, func_map, item_map, items),
+                    vec![
+                        vm::Op::Jump {
+                            to: deinit_pos,
+                            check: None,
+                        },
+                        vm::Op::Pop {
+                            count: 2,
+                            offset: 0,
+                        },
+                    ],
+                ].concat();
+
+                case_offset += case_code.len();
+
+                cases_code.append(&mut case_code);
+            };
+
+            let fallback_code = fallback.map_or_else(Vec::new, |f| compile_s_block(f, case_offset, ret_type, var_scope, block_stack, func_map, item_map, items));
+
+            let ret_count = if cur_block_info.self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 };
+            let deinit_code = vec![vm::Op::Pop { count: 1, offset: ret_count }];
+
+            [
+                of_code,
+                cases_code,
+                fallback_code,
+                deinit_code,
+            ].concat()
+        },
         lcr::SBlockTag::Handle { .. } => todo!(),
         lcr::SBlockTag::Unhandle { .. } => todo!(),
     }
@@ -585,7 +653,11 @@ fn estimate_size(block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr:
                 || estimate_size(code, func_map) + 4,
                 |o| estimate_size(code, func_map) + estimate_size(o, func_map) + 5
             ),
-        lcr::SBlockTag::Selector { .. } => todo!(),
+        lcr::SBlockTag::Selector { of, cases, fallback } =>
+            estimate_size(of, func_map)
+                + cases.iter().map(|(check, code)| estimate_size(check, func_map) + estimate_size(code, func_map) + 5).sum::<usize>()
+                + fallback.as_ref().map_or(0, |f| estimate_size(f, func_map))
+                + 1,
         lcr::SBlockTag::Handle { .. } => todo!(),
         lcr::SBlockTag::Unhandle { .. } => todo!(),
     }

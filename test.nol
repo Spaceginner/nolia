@@ -1,4 +1,4 @@
-fnc println |n: %i64|
+fnc println |n: %str|
 asm {
     syscall println
 }
@@ -10,7 +10,7 @@ asm {
 
 fnc eq |a: %i64, b: %i64| -> %bool
 asm {
-    syscall eq
+    syscall equal
 }
 
 
@@ -22,11 +22,22 @@ asm {
     $invert loadsysitem false_
 }
 
-fnc entry || {
-    let c: %i64 = 0i64;
+fnc random_num || -> %i64 {
+    4  // randomly selected by a dice roll
+}
 
-    #while not(eq(c, 5)) {
-        c = add(c, 1);
-        println(c);
+fnc entry || {
+    let c: %i64 = random_num();
+
+    #sel c {
+        of random_num() {
+            println("it is quite random...");
+        }
+        of 0 {
+            println("it is zero!");
+        }
+        or else {
+            println("idk");
+        }
     };
 }
