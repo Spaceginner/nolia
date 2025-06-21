@@ -190,13 +190,6 @@ pub (in super::super) enum SBlockTag {
         code: Vec<Instruction>,
         closed: bool,
     },
-    // todo later merge with selector
-    Condition {
-        check: SBlock,
-        code: SBlock,
-        otherwise: Option<SBlock>,
-        inverted: bool,
-    },
     Selector {
         of: SBlock,
         cases: Vec<(SBlock, SBlock)>,

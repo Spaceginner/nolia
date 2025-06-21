@@ -29,15 +29,9 @@ fnc random_num || -> %i64 {
 fnc entry || {
     let c: %i64 = random_num();
 
-    #sel c {
-        of random_num() {
-            println("it is quite random...");
-        }
-        of 0 {
-            println("it is zero!");
-        }
-        or else {
-            println("idk");
-        }
+    #if eq(c, 3) {
+
+    } else {
+        println("this thing works yayy");
     };
 }

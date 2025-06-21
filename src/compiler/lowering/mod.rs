@@ -171,11 +171,20 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
             let tag = match *block_e.kind {
                 ast::BlockExpressionKind::Simple { code } => *transform_stmt_b(root, code).tag,
                 ast::BlockExpressionKind::Condition { code, check, otherwise, inverted } =>
-                    lcr::SBlockTag::Condition {
-                        code: transform_stmt_b(root, code),
-                        check: transform_expr(root, check),
-                        otherwise: otherwise.map(|sb| transform_stmt_b(root, sb)),
-                        inverted,
+                    lcr::SBlockTag::Selector {
+                        of: transform_expr(root, check),
+                        cases: vec![(
+                                lcr::SBlock {
+                                    label: None,
+                                    tag: Box::new(lcr::SBlockTag::Simple {
+                                        closed: false,
+                                        decls: vec![],
+                                        code: vec![lcr::Instruction::LoadLiteral(ast::LiteralExpression::Bool(!inverted).into())],
+                                    }),
+                                },
+                                transform_stmt_b(root, code)
+                            )],
+                        fallback: otherwise.map(|o| transform_stmt_b(root, o)),
                     },
                 ast::BlockExpressionKind::Selector { of, fallback, cases } =>
                     lcr::SBlockTag::Selector {
@@ -229,18 +238,27 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
                                         vec![
                                             lcr::Instruction::DoBlock(lcr::SBlock {
                                                 label: None,
-                                                tag: Box::new(lcr::SBlockTag::Condition {
-                                                    inverted: !inverted,
-                                                    otherwise: None,
-                                                    check: transform_expr(root, check),
-                                                    code: lcr::SBlock {
-                                                        label: None,
-                                                        tag: Box::new(lcr::SBlockTag::Simple {
-                                                            closed: false,
-                                                            decls: vec![],
-                                                            code: vec![lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { value: None, label: label.clone() })],
-                                                        }),
-                                                    }
+                                                tag: Box::new(lcr::SBlockTag::Selector {
+                                                    of: transform_expr(root, check),
+                                                    cases: vec![(
+                                                            lcr::SBlock {
+                                                                label: None,
+                                                                tag: Box::new(lcr::SBlockTag::Simple {
+                                                                    closed: false,
+                                                                    decls: vec![],
+                                                                    code: vec![lcr::Instruction::LoadLiteral(ast::LiteralExpression::Bool(inverted).into())],
+                                                                }),
+                                                            },
+                                                            lcr::SBlock {
+                                                                label: None,
+                                                                tag: Box::new(lcr::SBlockTag::Simple {
+                                                                    closed: false,
+                                                                    decls: vec![],
+                                                                    code: vec![lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { value: None, label: label.clone() })],
+                                                                }),
+                                                            }
+                                                        )],
+                                                    fallback: None,
                                                 })
                                             }),
                                             lcr::Instruction::DoBlock(transform_stmt_b(root, code)),
@@ -251,18 +269,27 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
                                             lcr::Instruction::DoBlock(transform_stmt_b(root, code)),
                                             lcr::Instruction::DoBlock(lcr::SBlock {
                                                 label: None,
-                                                tag: Box::new(lcr::SBlockTag::Condition {
-                                                    inverted,
-                                                    otherwise: None,
-                                                    check: transform_expr(root, check),
-                                                    code: lcr::SBlock {
-                                                        label: None,
-                                                        tag: Box::new(lcr::SBlockTag::Simple {
-                                                            closed: false,
-                                                            decls: vec![],
-                                                            code: vec![lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label })],
-                                                        }),
-                                                    }
+                                                tag: Box::new(lcr::SBlockTag::Selector {
+                                                    of: transform_expr(root, check),
+                                                    cases: vec![(
+                                                        lcr::SBlock {
+                                                            label: None,
+                                                            tag: Box::new(lcr::SBlockTag::Simple {
+                                                                closed: false,
+                                                                decls: vec![],
+                                                                code: vec![lcr::Instruction::LoadLiteral(ast::LiteralExpression::Bool(!inverted).into())],
+                                                            }),
+                                                        },
+                                                        lcr::SBlock {
+                                                            label: None,
+                                                            tag: Box::new(lcr::SBlockTag::Simple {
+                                                                closed: false,
+                                                                decls: vec![],
+                                                                code: vec![lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label })],
+                                                            }),
+                                                        }
+                                                    )],
+                                                    fallback: None,
                                                 })
                                             }),
                                         ]

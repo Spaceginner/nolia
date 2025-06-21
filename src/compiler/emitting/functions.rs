@@ -388,6 +388,10 @@ fn compile_s_block(
     match *s_block.tag {
         lcr::SBlockTag::Block { block } => compile_s_block(block, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items),
         lcr::SBlockTag::Simple { code, mut decls, closed } => {
+            if code.is_empty() {
+                return vec![];
+            };
+            
             let mut code_offset = 0;
             let init_code = decls.iter_mut()
                 .map(|lcr::Declaration { name, r#type }| {
@@ -447,93 +451,9 @@ fn compile_s_block(
 
             [init_code, main_code, deinit_code].concat()
         },
-        lcr::SBlockTag::Condition { code, check, otherwise, inverted } => {
-            if let Some(b) = otherwise.as_ref()
-                && !resolve_type(b, func_map, var_scope, item_map).within(&cur_block_info.self_type) {
-                panic!("branch is not of the same return type");
-            };
-
-            if !resolve_type(&check, func_map, var_scope, item_map).within(&lcr::TypeRef::Primitive(lcr::PrimitiveType::Bool)) {
-                panic!("check is not bool");
-            };
-
-            let ret_count = if cur_block_info.self_type.within(&lcr::TypeRef::Nothing) { 0 } else { 1 };
-            let check_code = compile_s_block(check, starts_at, ret_type, var_scope, block_stack, func_map, item_map, items);
-            var_scope.1 -= 1;
-
-            if let Some(otherwise_code) = otherwise {
-                let main_pos = starts_at + check_code.len() + 3;
-                let main_code = compile_s_block(code, main_pos, ret_type, var_scope, block_stack, func_map, item_map, items);
-                let after_main_pos = main_pos + main_code.len() + 1;
-
-                var_scope.1 -= ret_count;
-                let otherwise = compile_s_block(otherwise_code, after_main_pos + 1, ret_type, var_scope, block_stack, func_map, item_map, items);
-                let after_otherwise_pos = after_main_pos + otherwise.len() + 1;
-
-                [
-                    check_code,
-                    vec![
-                        vm::Op::Jump {
-                            to: main_pos - 1,
-                            check: Some(!inverted),
-                        },
-                        vm::Op::Jump {
-                            to: after_main_pos,
-                            check: None,
-                        },
-                        vm::Op::Pop {
-                            count: 1,
-                            offset: 0,
-                        },
-                    ],
-                    main_code,
-                    vec![
-                        vm::Op::Jump {
-                            to: after_otherwise_pos,
-                            check: None,
-                        },
-                        vm::Op::Pop {
-                            count: 1,
-                            offset: 0,
-                        },
-                    ],
-                    otherwise,
-                ].concat()
-            } else {
-                let main_pos = starts_at + check_code.len() + 1;
-                let main_code = compile_s_block(code, main_pos + 1, ret_type, var_scope, block_stack, func_map, item_map, items);
-                let after_main_pos = main_pos + 1 + main_code.len() + 1;
-
-                var_scope.1 -= ret_count;
-
-                [
-                    check_code,
-                    vec![
-                        // todo introduce a jump-else kind of instr
-                        vm::Op::Jump {
-                            to: after_main_pos,
-                            check: Some(inverted),
-                        },
-                        vm::Op::Pop {
-                            count: 1,
-                            offset: 0,
-                        },
-                    ],
-                    main_code,
-                    vec![
-                        vm::Op::Jump {
-                            to: after_main_pos + 1,
-                            check: None,
-                        },
-                        vm::Op::Pop {
-                            count: 1,
-                            offset: 0,
-                        },
-                    ]
-                ].concat()
-            }
-        },
         lcr::SBlockTag::Selector { of, cases, fallback } => {
+            // todo add specific optimization for checking against bools (to just remove like 2 instrs...)
+            
             // of()
             // cases n:
             //      check()
@@ -630,7 +550,7 @@ fn estimate_size(block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr:
     match &*block.tag {
         lcr::SBlockTag::Block { block } => estimate_size(block, func_map),
         &lcr::SBlockTag::Simple { ref code, ref decls, closed } =>
-            decls.len() + if decls.is_empty() { 0 } else { 1 } + {
+            decls.len() + if decls.is_empty() { 0 } else { 1 } + if code.is_empty() { 0 } else {
                 let last_i = code.len() - 1;
 
                 code.iter().enumerate()
@@ -648,11 +568,6 @@ fn estimate_size(block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr:
                     })
                     .sum::<usize>()
             },
-        lcr::SBlockTag::Condition { code, check, otherwise, inverted: _ } =>
-            estimate_size(check, func_map) + otherwise.as_ref().map_or_else(
-                || estimate_size(code, func_map) + 4,
-                |o| estimate_size(code, func_map) + estimate_size(o, func_map) + 5
-            ),
         lcr::SBlockTag::Selector { of, cases, fallback } =>
             estimate_size(of, func_map)
                 + cases.iter().map(|(check, code)| estimate_size(check, func_map) + estimate_size(code, func_map) + 5).sum::<usize>()
