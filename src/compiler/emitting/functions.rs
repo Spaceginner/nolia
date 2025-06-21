@@ -107,12 +107,7 @@ fn compile_asm_func(
             vm::Op::LoadSystemItem {
                 id: id.either(
                     |id| id.into(),
-                    |name| match &name[..] {  // fixme soft-code sysitem name matching
-                        "false_" => vm::SysItemId::False,  // todo come up with a better solution for this
-                        "true_" => vm::SysItemId::True,
-                        "void" => vm::SysItemId::Void,
-                        _ => panic!("unknown sys item")
-                    },
+                    |name| vm::SysItemId::try_from(&*name).unwrap(),
                 ),
             },
         lcr::AsmOp::Access { .. } => { todo!("access instr is not supported") }
@@ -121,15 +116,7 @@ fn compile_asm_func(
             vm::Op::SystemCall {
                 id: id.either(
                     |id| id.into(),
-                    |name| match &name[..] {  // fixme soft-code syscall name matching
-                        "panic" => vm::SysCallId::Panic,
-                        "println" => vm::SysCallId::PrintLine,
-                        "debug" => vm::SysCallId::Debug,
-                        "add" => vm::SysCallId::Add,
-                        "eq" => vm::SysCallId::Equal,
-                        "gettype" => vm::SysCallId::GetType,
-                        _ => panic!("unknown sys call")
-                    }
+                    |name| vm::SysCallId::try_from(&*name).unwrap(),
                 )
             },
         lcr::AsmOp::Return => vm::Op::Return,

@@ -55,6 +55,23 @@ impl TryFrom<Id> for SysCallId {
 }
 
 
+impl<'s> TryFrom<&'s str> for SysCallId {
+    type Error = ();
+
+    fn try_from(value: &'s str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "panic" => Self::Panic,
+            "println" => Self::PrintLine,
+            "debug" => Self::Debug,
+            "add" => Self::Add,
+            "equal" => Self::Equal,
+            "gettype" => Self::GetType,
+            _ => Err(())?
+        })
+    }
+}
+
+
 #[derive(Debug, Clone, Copy)]
 pub enum SysItemId {
     Provided {
@@ -79,6 +96,20 @@ impl TryFrom<Id> for SysItemId {
                     2 => Self::Void,
                     _ => Err(())?,
                 }
+        })
+    }
+}
+
+
+impl<'s> TryFrom<&'s str> for SysItemId {
+    type Error = ();
+
+    fn try_from(value: &'s str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "true_" => Self::True,
+            "false_" => Self::False,
+            "void" => Self::Void,
+            _ => Err(())?
         })
     }
 }
