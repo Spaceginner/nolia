@@ -391,7 +391,7 @@ fn compile_s_block(
             if code.is_empty() {
                 return vec![];
             };
-            
+
             let mut code_offset = 0;
             let init_code = decls.iter_mut()
                 .map(|lcr::Declaration { name, r#type }| {
@@ -453,7 +453,7 @@ fn compile_s_block(
         },
         lcr::SBlockTag::Selector { of, cases, fallback } => {
             // todo add specific optimization for checking against bools (to just remove like 2 instrs...)
-            
+
             // of()
             // cases n:
             //      check()
@@ -478,9 +478,13 @@ fn compile_s_block(
             for (check, action) in cases {
                 let check_size = estimate_size(&check, func_map);
                 let fallthrough_pos = case_offset + check_size + 3 + estimate_size(&action, func_map) + 1;
-
+                
+                let check_code = compile_s_block(check, case_offset, ret_type, var_scope, block_stack, func_map, item_map, items);
+                var_scope.1 -= 2;
+                let action_code = compile_s_block(action, case_offset + check_size + 3, ret_type, var_scope, block_stack, func_map, item_map, items);
+                
                 let mut case_code = [
-                    compile_s_block(check, case_offset, ret_type, var_scope, block_stack, func_map, item_map, items),
+                    check_code,
                     vec![
                         vm::Op::SystemCall { id: vm::SysCallId::Equal },
                         vm::Op::Jump {
@@ -492,7 +496,7 @@ fn compile_s_block(
                             offset: 0,
                         },
                     ],
-                    compile_s_block(action, case_offset + check_size + 3, ret_type, var_scope, block_stack, func_map, item_map, items),
+                    action_code,
                     vec![
                         vm::Op::Jump {
                             to: deinit_pos,
