@@ -28,8 +28,9 @@ impl Compiler {
                 .map(|(i, (p, f))| (p.clone(), (i, f.r#type.clone())))
                 .collect::<HashMap<_, _>>();
 
+            let mut func_comp = functions::FunctionCompiler::new(&func_map, &item_map, &mut items);
             let funcs = crate_.function_store.into_values()
-                .map(|func| functions::compile_function(func, &func_map, &item_map, &mut items))
+                .map(|func| func_comp.compile(func))
                 .collect();
 
             let crate_id = vm::CrateId::new(&crate_id_raw.0, crate_id_raw.1);

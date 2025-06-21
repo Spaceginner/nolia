@@ -85,16 +85,12 @@ fn transform_stmt_b(root: &lcr::Path, stmt_b: ast::StatementBlock<'_>) -> lcr::S
                         r#type: transform_type(root, what.r#type),
                     });
                     with.map(|e| lcr::Instruction::DoStatement(lcr::StatementInstruction::Assignment {
-                        what: lcr::SBlock { label: None, tag: Box::new(lcr::SBlockTag::Simple {
-                            closed: false,
-                            decls: vec![],
-                            code: vec![lcr::Instruction::DoAction(lcr::ActionInstruction::Load {
+                        what: lcr::Instruction::DoAction(lcr::ActionInstruction::Load {
                                 item: lcr::IntermediatePath {
                                     var: Some(what.name.into()),
                                     path: lcr::Path { crate_: None, parts: vec![] },
                                 },
-                            })],
-                        }) },
+                            }).into(),
                         to: transform_expr(root, e),
                     }))?
                 },
@@ -138,35 +134,28 @@ fn transform_stmt_b(root: &lcr::Path, stmt_b: ast::StatementBlock<'_>) -> lcr::S
 fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
     match expr {
         ast::Expression::Action(act_e) =>
-            lcr::SBlock {
-                tag: Box::new(lcr::SBlockTag::Simple {
-                    closed: false,
-                    decls: vec![],
-                    code: vec![lcr::Instruction::DoAction(match *act_e {
-                        ast::ActionExpression::Call { what, args } =>
-                            lcr::ActionInstruction::Call {
-                                what: transform_expr(root, what),
-                                args: args.into_iter().map(|e| transform_expr(root, e)).collect(),
-                            },
-                        ast::ActionExpression::MethodCall { what, method, args } =>
-                            lcr::ActionInstruction::MethodCall {
-                                what: transform_expr(root, what),
-                                method: method.into(),
-                                args: args.into_iter().map(|e| transform_expr(root, e)).collect()
-                            },
-                        ast::ActionExpression::Access { of, field } =>
-                            lcr::ActionInstruction::Access {
-                                of: transform_expr(root, of),
-                                field: field.into(),
-                            },
-                        ast::ActionExpression::Load { item } =>
-                            lcr::ActionInstruction::Load {
-                                item: transform_im_item(root, item),
-                            },
-                    })],
-                }),
-                label: None,
-            },
+            lcr::Instruction::DoAction(match *act_e {
+                ast::ActionExpression::Call { what, args } =>
+                    lcr::ActionInstruction::Call {
+                        what: transform_expr(root, what),
+                        args: args.into_iter().map(|e| transform_expr(root, e)).collect(),
+                    },
+                ast::ActionExpression::MethodCall { what, method, args } =>
+                    lcr::ActionInstruction::MethodCall {
+                        what: transform_expr(root, what),
+                        method: method.into(),
+                        args: args.into_iter().map(|e| transform_expr(root, e)).collect()
+                    },
+                ast::ActionExpression::Access { of, field } =>
+                    lcr::ActionInstruction::Access {
+                        of: transform_expr(root, of),
+                        field: field.into(),
+                    },
+                ast::ActionExpression::Load { item } =>
+                    lcr::ActionInstruction::Load {
+                        item: transform_im_item(root, item),
+                    },
+            }).into(),
         ast::Expression::Block(block_e) => {
             let tag = match *block_e.kind {
                 ast::BlockExpressionKind::Simple { code } => *transform_stmt_b(root, code).tag,
@@ -174,14 +163,7 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
                     lcr::SBlockTag::Selector {
                         of: transform_expr(root, check),
                         cases: vec![(
-                                lcr::SBlock {
-                                    label: None,
-                                    tag: Box::new(lcr::SBlockTag::Simple {
-                                        closed: false,
-                                        decls: vec![],
-                                        code: vec![lcr::Instruction::LoadLiteral(ast::LiteralExpression::Bool(!inverted).into())],
-                                    }),
-                                },
+                                lcr::Instruction::LoadLiteral(ast::LiteralExpression::Bool(!inverted).into()).into(),
                                 transform_stmt_b(root, code)
                             )],
                         fallback: otherwise.map(|o| transform_stmt_b(root, o)),
@@ -241,23 +223,9 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
                                                 tag: Box::new(lcr::SBlockTag::Selector {
                                                     of: transform_expr(root, check),
                                                     cases: vec![(
-                                                            lcr::SBlock {
-                                                                label: None,
-                                                                tag: Box::new(lcr::SBlockTag::Simple {
-                                                                    closed: false,
-                                                                    decls: vec![],
-                                                                    code: vec![lcr::Instruction::LoadLiteral(ast::LiteralExpression::Bool(inverted).into())],
-                                                                }),
-                                                            },
-                                                            lcr::SBlock {
-                                                                label: None,
-                                                                tag: Box::new(lcr::SBlockTag::Simple {
-                                                                    closed: false,
-                                                                    decls: vec![],
-                                                                    code: vec![lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { value: None, label: label.clone() })],
-                                                                }),
-                                                            }
-                                                        )],
+                                                        lcr::Instruction::LoadLiteral(ast::LiteralExpression::Bool(inverted).into()).into(),
+                                                        lcr::Instruction::DoStatement(lcr::StatementInstruction::Escape { value: None, label: label.clone() }).into()
+                                                    )],
                                                     fallback: None,
                                                 })
                                             }),
@@ -272,22 +240,8 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
                                                 tag: Box::new(lcr::SBlockTag::Selector {
                                                     of: transform_expr(root, check),
                                                     cases: vec![(
-                                                        lcr::SBlock {
-                                                            label: None,
-                                                            tag: Box::new(lcr::SBlockTag::Simple {
-                                                                closed: false,
-                                                                decls: vec![],
-                                                                code: vec![lcr::Instruction::LoadLiteral(ast::LiteralExpression::Bool(!inverted).into())],
-                                                            }),
-                                                        },
-                                                        lcr::SBlock {
-                                                            label: None,
-                                                            tag: Box::new(lcr::SBlockTag::Simple {
-                                                                closed: false,
-                                                                decls: vec![],
-                                                                code: vec![lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label })],
-                                                            }),
-                                                        }
+                                                        lcr::Instruction::LoadLiteral(ast::LiteralExpression::Bool(!inverted).into()).into(),
+                                                        lcr::Instruction::DoStatement(lcr::StatementInstruction::Repeat { label }).into(),
                                                     )],
                                                     fallback: None,
                                                 })
@@ -307,39 +261,25 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
             }
         },
         ast::Expression::Construct(cnstr_e) =>
-            lcr::SBlock {
-                label: None,
-                tag: Box::new(lcr::SBlockTag::Simple {
-                    closed: false,
-                    decls: vec![],
-                    code: vec![lcr::Instruction::Construct(
-                        match cnstr_e {
-                            ast::ConstructExpression::Array { vals } =>
-                                lcr::ConstructInstruction::Array {
-                                    vals: vals.into_iter()
-                                        .map(|e| transform_expr(root, e))
-                                        .collect()
-                                },
-                            ast::ConstructExpression::Data { what, fields } =>
-                                lcr::ConstructInstruction::Data {
-                                    what: transform_item(root, what).into(),
-                                    fields: fields.into_iter()
-                                        .map(|(n, e)| (n.into(), transform_expr(root, e)))
-                                        .collect(),
-                                },
+            lcr::Instruction::Construct(
+                match cnstr_e {
+                    ast::ConstructExpression::Array { vals } =>
+                        lcr::ConstructInstruction::Array {
+                            vals: vals.into_iter()
+                                .map(|e| transform_expr(root, e))
+                                .collect()
                         },
-                    )],
-                }),
-            },
+                    ast::ConstructExpression::Data { what, fields } =>
+                        lcr::ConstructInstruction::Data {
+                            what: transform_item(root, what).into(),
+                            fields: fields.into_iter()
+                                .map(|(n, e)| (n.into(), transform_expr(root, e)))
+                                .collect(),
+                        },
+                },
+            ).into(),
         ast::Expression::Literal(lit_e) =>
-            lcr::SBlock {
-                label: None,
-                tag: Box::new(lcr::SBlockTag::Simple {
-                    closed: false,
-                    decls: vec![],
-                    code: vec![lcr::Instruction::LoadLiteral(lit_e.into())],
-                }),
-            },
+            lcr::Instruction::LoadLiteral(lit_e.into()).into(),
     }
 }
 

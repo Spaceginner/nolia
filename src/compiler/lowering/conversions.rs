@@ -1,7 +1,7 @@
 use std::num::NonZero;
-use crate::compiler::lowering::lcr;
-use crate::parser::ast;
 use crate::vm;
+use crate::parser::ast;
+use super::lcr;
 
 impl<'p, 's> From<&'p [&'s str]> for lcr::Path {
     fn from(path: &'p [&'s str]) -> Self {
@@ -141,5 +141,32 @@ impl From<lcr::AsmId> for vm::SysItemId {
 impl From<usize> for vm::Id {
     fn from(item: usize) -> Self {
         Self { space: None, item: item.try_into().unwrap() }
+    }
+}
+
+impl From<lcr::Instruction> for lcr::SBlock {
+    fn from(instr: lcr::Instruction) -> Self {
+        Self {
+            label: None,
+            tag: Box::new(lcr::SBlockTag::Simple {
+                closed: false,
+                decls: vec![],
+                code: vec![instr],
+            }),
+        }
+    }
+}
+
+
+impl From<Vec<lcr::Instruction>> for lcr::SBlock {
+    fn from(instrs: Vec<lcr::Instruction>) -> Self {
+        Self {
+            label: None,
+            tag: Box::new(lcr::SBlockTag::Simple {
+                closed: false,
+                decls: vec![],
+                code: instrs,
+            }),
+        }
     }
 }
