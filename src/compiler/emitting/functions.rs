@@ -107,7 +107,7 @@ fn compile_asm_func(
             vm::Op::LoadSystemItem {
                 id: id.either(
                     |id| id.into(),
-                    |name| vm::SysItemId::try_from(&*name).unwrap(),
+                    |name| vm::SysItemId::try_from(&*name).unwrap_or_else(|_| panic!("such sysitem doesnt exist: {name}")),
                 ),
             },
         lcr::AsmOp::Access { .. } => { todo!("access instr is not supported") }
@@ -116,7 +116,7 @@ fn compile_asm_func(
             vm::Op::SystemCall {
                 id: id.either(
                     |id| id.into(),
-                    |name| vm::SysCallId::try_from(&*name).unwrap(),
+                    |name| vm::SysCallId::try_from(&*name).unwrap_or_else(|_| panic!("such syscall doesnt exist: {name}")),
                 )
             },
         lcr::AsmOp::Return => vm::Op::Return,
