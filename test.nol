@@ -27,11 +27,26 @@ fnc random_num || -> %i64 {
 }
 
 fnc entry || {
-    let c: %i64 = random_num();
+    let c: %i64 = 34;
 
-    #if eq(c, 3) {
+    let mapped: %i64 = #sel c {
+        of 4 {
+            3  // not random
+        }
+        or else {
+            random_num() // make it random
+        }
+    };
 
-    } else {
-        println("this thing works yayy");
+    #sel mapped {
+        of 3 { println("it is 3") }
+        of 4 {
+            println("it is random");
+            c = 343;
+            #unless eq(c, 4) {
+                println("now it isnt")
+            };
+        }
+        or else { println("hh??/") }
     };
 }
