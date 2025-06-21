@@ -536,7 +536,6 @@ fn compile_s_block(
         lcr::SBlockTag::Selector { .. } => todo!(),
         lcr::SBlockTag::Handle { .. } => todo!(),
         lcr::SBlockTag::Unhandle { .. } => todo!(),
-        lcr::SBlockTag::Over { .. } => todo!(),
     }
 }
 
@@ -589,6 +588,5 @@ fn estimate_size(block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr:
         lcr::SBlockTag::Selector { .. } => todo!(),
         lcr::SBlockTag::Handle { .. } => todo!(),
         lcr::SBlockTag::Unhandle { .. } => todo!(),
-        lcr::SBlockTag::Over { .. } => todo!(),
     }
 }

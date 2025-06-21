@@ -271,13 +271,7 @@ fn transform_expr(root: &lcr::Path, expr: ast::Expression<'_>) -> lcr::SBlock {
                         }
                     }
                 },
-                // todo after protos are impl'ed, lower into a simple loop
-                ast::BlockExpressionKind::Over { code, what, with } =>
-                    lcr::SBlockTag::Over {
-                        code: transform_stmt_b(root, code),
-                        what: transform_expr(root, what),
-                        with: with.into(),
-                    },
+                ast::BlockExpressionKind::Over { .. } => todo!("protos are not implemented yet, so over blocks are not supported"),
             };
 
             lcr::SBlock {

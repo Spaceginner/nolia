@@ -121,8 +121,6 @@ fn resolve_type_inner<'b>(
             resolve_type_inner(code, func_map, var_scope, temp_var_scope, item_map, true),
         lcr::SBlockTag::Selector { cases, .. } =>
             cases.first().map(|(_, b)| resolve_type_inner(b, func_map, var_scope, temp_var_scope, item_map, true)).unwrap_or(lcr::TypeRef::Nothing),
-        lcr::SBlockTag::Over { .. } =>
-            lcr::TypeRef::Nothing,
     }
 }
 
@@ -190,7 +188,6 @@ fn returns_something_inner(s_block: &lcr::SBlock, func_map: &HashMap<lcr::Path, 
         lcr::SBlockTag::Condition { code, check: _, otherwise: _, inverted: _ } => returns_something_inner(code, func_map, true),
         lcr::SBlockTag::Selector { of: _, cases, fallback: _ }
             => cases.first().map_or(Some(false), |(_, b)| returns_something_inner(b, func_map, true)),
-        lcr::SBlockTag::Over { what: _, with: _, code: _ } => Some(false)
     }
 }
 
@@ -227,7 +224,6 @@ fn can_escape(cur_s_block: &lcr::SBlock, within: &lcr::SBlock) -> bool {
             => can_escape(cur_s_block, what) || fallback.as_ref().is_some_and(|(_, f)| can_escape(cur_s_block, f)) || handlers.iter().any(|(_, _, handler)| can_escape(cur_s_block, handler)),
         lcr::SBlockTag::Unhandle { what }
             => can_escape(cur_s_block, what),
-        lcr::SBlockTag::Over { .. } => unimplemented!(),
     }
 }
 

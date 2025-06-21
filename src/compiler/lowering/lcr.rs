@@ -211,12 +211,6 @@ pub (in super::super) enum SBlockTag {
     Unhandle {
         what: SBlock,
     },
-    // todo later merge with simple block
-    Over {
-        code: SBlock,
-        what: SBlock,
-        with: Box<str>,
-    }
 }
 
 #[derive(Debug, Clone)]
