@@ -522,6 +522,27 @@ impl FunctionScope {
                     }
                 },
                 Op::SystemCall { id } => {
+                    macro_rules! pair {
+                        ($a:ident $b:ident boolcomp) => {
+                            Object::System(SystemObj::Bool($a == $b))
+                        };
+                        ($a:ident $b:ident bool) => {
+                            (Object::System(SystemObj::Bool($a)), Object::System(SystemObj::Bool($b)))
+                        };
+                        ($a:ident $b:ident int $name:ident) => {
+                            (Object::Fundamental(ConstItem::Integer(Integer::$name($a))), Object::Fundamental(ConstItem::Integer(Integer::$name($b))))
+                        };
+                        ($a:ident $b:ident match_ $($pairs:pat)* , $res:expr) => {
+                            match ($a, $b) {
+                                $($pairs => $res,)*
+                                _ => panic!("mismatch (a: {:?} b: {:?})", $a, $b),
+                            }
+                        };
+                        ($a:ident $b:ident $constitem:path) => {
+                            (Object::Fundamental($constitem($a)), Object::Fundamental($constitem($b)))
+                        };
+                    }
+
                     match id {
                         SysCallId::Provided { .. } => panic!("provided syscalls are not yet supported"),
                         SysCallId::PrintLine => {
@@ -560,12 +581,24 @@ impl FunctionScope {
                             let a = &vm.memory[vm.stack[1]];
                             let b = &vm.memory[vm.stack[0]];
 
-                            // todo implement all of the pairs
-                            let res = match (a, b) {
-                                (&Object::Fundamental(ConstItem::Integer(Integer::I64(a))), &Object::Fundamental(ConstItem::Integer(Integer::I64(b)))) =>
-                                    Object::System(SystemObj::Bool(a == b)),
-                                _ => panic!("mismatch (a: {a:?} b: {b:?})"),
-                            };
+                            let res =
+                                pair!(a b match_
+                                    pair!(a b int I8)
+                                    pair!(a b int I16)
+                                    pair!(a b int I32)
+                                    pair!(a b int I64)
+                                    pair!(a b int I128)
+                                    pair!(a b int U8)
+                                    pair!(a b int U16)
+                                    pair!(a b int U32)
+                                    pair!(a b int U64)
+                                    pair!(a b int U128)
+                                    pair!(a b ConstItem::Float)
+                                    pair!(a b ConstItem::Char)
+                                    pair!(a b ConstItem::String)
+                                    pair!(a b bool),
+                                    pair!(a b boolcomp)
+                                );
 
                             vm.push_new(res);
                         },
