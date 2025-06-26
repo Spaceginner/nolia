@@ -1,4 +1,6 @@
+use std::borrow::Cow;
 use either::Either;
+pub use super::lexer::Integer;
 
 #[derive(Debug, Clone)]
 pub enum ItemRoot<'s> {
@@ -125,25 +127,11 @@ pub enum BlockExpressionKind<'s> {
 }
 
 #[derive(Debug, Clone)]
-pub enum LiteralInteger {
-    I8(i8),
-    I16(i16),
-    I32(i32),
-    I64(i64),
-    I128(i128),
-    U8(u8),
-    U16(u16),
-    U32(u32),
-    U64(u64),
-    U128(u128),
-}
-
-#[derive(Debug, Clone)]
-pub enum LiteralExpression {
-    Integer(LiteralInteger),
+pub enum LiteralExpression<'s> {
+    Integer(Integer),
     Float(f64),
     Char(char),
-    String(String),
+    String(Cow<'s, str>),
     Bool(bool),
     Void,
 }
@@ -182,7 +170,7 @@ pub enum Expression<'s> {
     Action(Box<ActionExpression<'s>>),
     Block(BlockExpression<'s>),
     Construct(ConstructExpression<'s>),
-    Literal(LiteralExpression),
+    Literal(LiteralExpression<'s>),
 }
 
 
@@ -244,7 +232,7 @@ pub struct AsmId {
 #[derive(Debug, Clone)]
 pub enum AsmOp<'s> {
     Pack { r#type: Either<(AsmId, usize), Item<'s>> },
-    LoadConstItem { item: Either<AsmId, LiteralExpression> },
+    LoadConstItem { item: Either<AsmId, LiteralExpression<'s>> },
     LoadFunction { func: Either<AsmId, Item<'s>> },
     LoadImplementation { of: Either<(AsmId, u32), Item<'s>> },
     LoadSystemItem { id: Either<AsmId, &'s str> },
@@ -283,7 +271,7 @@ pub enum Declaration<'s> {
     },
     Const {
         what: Capture<'s>,
-        val: LiteralExpression,
+        val: LiteralExpression<'s>,
     },
     Data {
         name: &'s str,

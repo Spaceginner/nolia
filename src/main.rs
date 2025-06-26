@@ -1,5 +1,6 @@
 #![feature(let_chains)]
 #![feature(if_let_guard)]
+#![feature(try_blocks)]
 
 use compiler::lcr::Path;
 use crate::compiler::{Compiler, CrateSource};
@@ -11,8 +12,9 @@ mod compiler;
 
 fn main() {
     let file = std::fs::read_to_string("test.nol").unwrap();
-    let parsed = parser::ModuleParser::new().parse(&file).unwrap();
-    
+    let lexer = parser::Lexer::new(&file);
+    let parsed = parser::ModuleParser::new().parse(lexer).unwrap();
+
     let mut compiler = Compiler::default();
 
     compiler.load_crate(
@@ -22,13 +24,13 @@ fn main() {
             mods: vec![(path!(), parsed)],
         }
     );
-    
+
     // println!("{compiler:#?}");  // todo make actually readable IR display impl
-    
+
     let (crates, entry_func) = compiler.compile(Some(path!(example @ entry))).unwrap();
 
     println!("{crates:#?}");
-    
+
     let mut vm = vm::Vm::default();
 
     let crate_id = vm.load_crate(crates.into_iter().next().unwrap());

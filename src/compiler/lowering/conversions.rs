@@ -49,19 +49,19 @@ impl From<lcr::ConcreteTypeId> for lcr::ConcreteTypeRef {
 }
 
 
-impl From<ast::LiteralInteger> for lcr::LiteralInteger {
-    fn from(value: ast::LiteralInteger) -> Self {
+impl From<ast::Integer> for lcr::LiteralInteger {
+    fn from(value: ast::Integer) -> Self {
         match value {
-            ast::LiteralInteger::I8(n) => Self::I8(n),
-            ast::LiteralInteger::I16(n) => Self::I16(n),
-            ast::LiteralInteger::I32(n) => Self::I32(n),
-            ast::LiteralInteger::I64(n) => Self::I64(n),
-            ast::LiteralInteger::I128(n) => Self::I128(n),
-            ast::LiteralInteger::U8(n) => Self::U8(n),
-            ast::LiteralInteger::U16(n) => Self::U16(n),
-            ast::LiteralInteger::U32(n) => Self::U32(n),
-            ast::LiteralInteger::U64(n) => Self::U64(n),
-            ast::LiteralInteger::U128(n) => Self::U128(n),
+            ast::Integer::I8(n) => Self::I8(n),
+            ast::Integer::I16(n) => Self::I16(n),
+            ast::Integer::I32(n) => Self::I32(n),
+            ast::Integer::I64(n) => Self::I64(n),
+            ast::Integer::I128(n) => Self::I128(n),
+            ast::Integer::U8(n) => Self::U8(n),
+            ast::Integer::U16(n) => Self::U16(n),
+            ast::Integer::U32(n) => Self::U32(n),
+            ast::Integer::U64(n) => Self::U64(n),
+            ast::Integer::U128(n) => Self::U128(n),
         }
     }
 }
@@ -84,7 +84,7 @@ impl From<lcr::LiteralInteger> for vm::Integer {
     }
 }
 
-impl From<ast::LiteralExpression> for lcr::LiteralValue {
+impl From<ast::LiteralExpression<'_>> for lcr::LiteralValue {
     fn from(value: ast::LiteralExpression) -> Self {
         match value {
             ast::LiteralExpression::Integer(n) => Self::Integer(n.into()),

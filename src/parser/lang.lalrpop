@@ -1,13 +1,107 @@
-use crate::parser::ast::*;
+use std::borrow::Cow;
 use either::Either;
+use super::{
+    ast::*,
+    lexer::{Loc, Error, Lexer, Token, Symbol, Keyword, Literal, Integer},
+};
 
-grammar;
+grammar<'input>;
 
-match {
-    r"\s*" => { },
-    r"//[^\n\r]*[\n\r]*" => { }, // // ...
-    r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/" => { },  // /* ... */
-    _
+extern {
+    type Location = Loc;
+    type Error = Error;
+
+    enum Token<'input> {
+        S_HASHTAG => Token::Symbol(Symbol::Hashtag),
+        S_PATH_SEP => Token::Symbol(Symbol::PathSep),
+        S_DOLLAR => Token::Symbol(Symbol::Dollar),
+        S_AT => Token::Symbol(Symbol::At),
+        S_SQUARE_OPEN => Token::Symbol(Symbol::SquareOpen),
+        S_SQUARE_CLOSE => Token::Symbol(Symbol::SquareClose),
+        S_PLUS => Token::Symbol(Symbol::Plus),
+        S_PERCENT => Token::Symbol(Symbol::Percent),
+        S_EXCLAMATION => Token::Symbol(Symbol::Exclamation),
+        S_TWO_DOTS => Token::Symbol(Symbol::TwoDots),
+        S_BRACKET_OPEN => Token::Symbol(Symbol::BracketOpen),
+        S_BRACKET_CLOSE => Token::Symbol(Symbol::BracketClose),
+        S_ARROW => Token::Symbol(Symbol::Arrow),
+        S_LINE => Token::Symbol(Symbol::Line),
+        S_COMMA => Token::Symbol(Symbol::Comma),
+        S_DOT => Token::Symbol(Symbol::Dot),
+        S_CURLY_OPEN => Token::Symbol(Symbol::CurlyOpen),
+        S_CURLY_CLOSE => Token::Symbol(Symbol::CurlyClose),
+        S_EQUAL => Token::Symbol(Symbol::Equal),
+        S_DOT_COMMA => Token::Symbol(Symbol::DotComma),
+        S_SLASH => Token::Symbol(Symbol::Slash),
+        S_DIAMOND => Token::Symbol(Symbol::Diamond),
+        S_ANGLED_OPEN => Token::Symbol(Symbol::AngledOpen),
+        S_ANGLED_CLOSE => Token::Symbol(Symbol::AngledClose),
+
+        KW_STR => Token::Keyword(Keyword::Str),
+        KW_CHAR => Token::Keyword(Keyword::Char),
+        KW_BOOL => Token::Keyword(Keyword::Bool),
+        KW_VOID => Token::Keyword(Keyword::Void),
+        KW_TRUE => Token::Keyword(Keyword::True),
+        KW_FALSE => Token::Keyword(Keyword::False),
+        KW_IF => Token::Keyword(Keyword::If),
+        KW_UNLESS => Token::Keyword(Keyword::Unless),
+        KW_WHILE => Token::Keyword(Keyword::While),
+        KW_UNTIL => Token::Keyword(Keyword::Until),
+        KW_SEL => Token::Keyword(Keyword::Sel),
+        KW_OR => Token::Keyword(Keyword::Or),
+        KW_ELSE => Token::Keyword(Keyword::Else),
+        KW_OF => Token::Keyword(Keyword::Of),
+        KW_LOOP => Token::Keyword(Keyword::Loop),
+        KW_DO => Token::Keyword(Keyword::Do),
+        KW_OVER => Token::Keyword(Keyword::Over),
+        KW_WITH => Token::Keyword(Keyword::With),
+        KW_HANDLE => Token::Keyword(Keyword::Handle),
+        KW_UNHANDLE => Token::Keyword(Keyword::Unhandle),
+        KW_LET => Token::Keyword(Keyword::Let),
+        KW_ESCAPE => Token::Keyword(Keyword::Escape),
+        KW_REPEAT => Token::Keyword(Keyword::Repeat),
+        KW_RETURN => Token::Keyword(Keyword::Return),
+        KW_THROW => Token::Keyword(Keyword::Throw),
+        KW_VM_DEBUG => Token::Keyword(Keyword::VmDebug),
+        KW_PACK => Token::Keyword(Keyword::Pack),
+        KW_LOAD_ITEM => Token::Keyword(Keyword::LoadItem),
+        KW_LOAD_FUNC => Token::Keyword(Keyword::LoadFunc),
+        KW_LOAD_IMPL => Token::Keyword(Keyword::LoadImpl),
+        KW_LOAD_SYS_ITEM => Token::Keyword(Keyword::LoadSysItem),
+        KW_ACCESS => Token::Keyword(Keyword::Access),
+        KW_CALL => Token::Keyword(Keyword::Call),
+        KW_SYS_CALL => Token::Keyword(Keyword::SysCall),
+        KW_SWAP => Token::Keyword(Keyword::Swap),
+        KW_PULL => Token::Keyword(Keyword::Pull),
+        KW_POP => Token::Keyword(Keyword::Pop),
+        KW_COPY => Token::Keyword(Keyword::Copy),
+        KW_JUMP => Token::Keyword(Keyword::Jump),
+        KW_ASM => Token::Keyword(Keyword::Asm),
+        KW_INCLUDE => Token::Keyword(Keyword::Include),
+        KW_MODULE => Token::Keyword(Keyword::Module),
+        KW_CONST => Token::Keyword(Keyword::Const),
+        KW_DATA => Token::Keyword(Keyword::Data),
+        KW_PROTO => Token::Keyword(Keyword::Proto),
+        KW_IMPL => Token::Keyword(Keyword::Impl),
+        KW_FNC => Token::Keyword(Keyword::Fnc),
+        KW_I8 => Token::Keyword(Keyword::I8),
+        KW_I16 => Token::Keyword(Keyword::I16),
+        KW_I32 => Token::Keyword(Keyword::I32),
+        KW_I64 => Token::Keyword(Keyword::I64),
+        KW_I128 => Token::Keyword(Keyword::I128),
+        KW_U8 => Token::Keyword(Keyword::U8),
+        KW_U16 => Token::Keyword(Keyword::U16),
+        KW_U32 => Token::Keyword(Keyword::U32),
+        KW_U64 => Token::Keyword(Keyword::U64),
+        KW_U128 => Token::Keyword(Keyword::U128),
+
+        IDENT => Token::Identifier(<&'input str>),
+
+        L_STRING => Token::Literal(Literal::String(<Cow<'input, str>>)),
+        L_CHAR => Token::Literal(Literal::Char(<char>)),
+        L_INTEGER => Token::Literal(Literal::Integer(<Integer>)),
+        L_FLOAT => Token::Literal(Literal::Float(<f64>)),
+    }
 }
 
 #[inline]
@@ -39,7 +133,7 @@ OptDefault<T>: T = T? => <>.unwrap_or(Default::default());
 SepSepReq<T, S>: Vec<T> = <SepReq<T, S>> S?;
 
 #[inline]
-Comma<T>: Vec<T> = SepSep<T, ",">;
+Comma<T>: Vec<T> = SepSep<T, S_COMMA>;
 
 #[inline]
 Either<L, R>: Either<L, R> = {
@@ -49,241 +143,136 @@ Either<L, R>: Either<L, R> = {
 
 // ------------------------------------------------------------------------------------------------
 
-// foobar_69
-Ident: &'input str = r"[a-zA-Z_]\w*";
-
 ItemRoot: ItemRoot<'input> = {
     // #::
-    "#" "::" => ItemRoot::CrateRoot,
+    S_HASHTAG S_PATH_SEP => ItemRoot::CrateRoot,
     // #lib::
-    "#" <lib:Ident> "::" => ItemRoot::LibRoot {<>},
+    S_HASHTAG <lib:IDENT> S_PATH_SEP => ItemRoot::LibRoot {<>},
     // $::
-    <updepth:"$"*> "::" => ItemRoot::ModRoot { updepth: updepth.len() },
+    <updepth:S_DOLLAR*> S_PATH_SEP => ItemRoot::ModRoot { updepth: updepth.len() },
 };
 
 // #::children::child_a
-Item: Item<'input> = <root:ItemRoot?> <path:SepReq<Ident, "::">> => Item {<>};
+Item: Item<'input> = <root:ItemRoot?> <path:SepReq<IDENT, S_PATH_SEP>> => Item {<>};
 
-Generics: Vec<Type<'input>> = "<" <Comma<Type>> ">";
+Generics: Vec<Type<'input>> = S_ANGLED_OPEN <Comma<Type>> S_ANGLED_CLOSE;
 
 ProtocolType: ProtocolType<'input> = <base:Item> <generics:OptDefault<Generics>> => ProtocolType {<>};
 
 #[inline]
 IntegerType: PrimitiveType = {
-    "i8" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Byte },
-    "i16" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Word },
-    "i32" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::DWord },
-    "i64" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::QWord },
-    "i128" => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::OWord },
-    "u8" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Byte },
-    "u16" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Word },
-    "u32" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::DWord },
-    "u64" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::QWord },
-    "u128" => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::OWord },
+    KW_I8 => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Byte },
+    KW_I16 => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::Word },
+    KW_I32 => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::DWord },
+    KW_I64 => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::QWord },
+    KW_I128 => PrimitiveType::Integer { signed: true, size: IntegerTypeSize::OWord },
+    KW_U8 => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Byte },
+    KW_U16 => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::Word },
+    KW_U32 => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::DWord },
+    KW_U64 => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::QWord },
+    KW_U128 => PrimitiveType::Integer { signed: false, size: IntegerTypeSize::OWord },
 };
 
 PrimitiveType: PrimitiveType = {
-    "str" => PrimitiveType::String,
-    "char" => PrimitiveType::Char,
-    "bool" => PrimitiveType::Bool,
-    "void" => PrimitiveType::Void,
+    KW_STR => PrimitiveType::String,
+    KW_CHAR => PrimitiveType::Char,
+    KW_BOOL => PrimitiveType::Bool,
+    KW_VOID => PrimitiveType::Void,
     IntegerType,
 };
 
 Type: Type<'input> = {
     // @[Foo + Bar]
-    "@" "[" <SepReq<ProtocolType, "+">> "]" => Type::Op(<>),
+    S_AT S_SQUARE_OPEN <SepReq<ProtocolType, S_PLUS>> S_SQUARE_CLOSE => Type::Op(<>),
     // @Type
-    "@" <ProtocolType> => Type::Op(vec![<>]),
+    S_AT <ProtocolType> => Type::Op(vec![<>]),
     // JustType
     Item => Type::Data(<>),
     // %i16
-    "%" <PrimitiveType> => Type::Primitive(<>),
+    S_PERCENT <PrimitiveType> => Type::Primitive(<>),
     // !
-    "!" => Type::Never,
+    S_EXCLAMATION => Type::Never,
     // []%i32
-    "[" "]" <Type> => Type::Array(Box::new(<>)),
+    S_SQUARE_OPEN S_SQUARE_CLOSE <Type> => Type::Array(Box::new(<>)),
 };
 
 // var: Type
-Capture: Capture<'input> = <name:Ident> ":" <r#type:Type> => Capture {<>};
+Capture: Capture<'input> = <name:IDENT> S_TWO_DOTS <r#type:Type> => Capture {<>};
 
 // |fuzz: T, foo: Bar| -> Choco <T> !Error, AnotherError
 #[inline]
-GenericDef: GenericDef<'input> = <name:Ident> <constraint:(":" <Type>)?> => GenericDef {<>};
-GenericDefs: GenericDefs<'input> = <defs:OptDefault<("<>" <Sep<GenericDef, ",">>)>> => GenericDefs {<>};
+GenericDef: GenericDef<'input> = <name:IDENT> <constraint:(S_TWO_DOTS <Type>)?> => GenericDef {<>};
+GenericDefs: GenericDefs<'input> = <defs:OptDefault<(S_DIAMOND <Sep<GenericDef, S_COMMA>>)>> => GenericDefs {<>};
 #[inline]
-Errors: Vec<Item<'input>> = OptDefault<("!" <Comma<Item>>)>;
-Signature: Signature<'input> = "|" <captures:Comma<Capture>> "|" <r#return:("->" <Type>)?> <generics:GenericDefs> <errors:Errors> => Signature {<>};
+Errors: Vec<Item<'input>> = OptDefault<(S_EXCLAMATION <Comma<Item>>)>;
+Signature: Signature<'input> = S_LINE <captures:Comma<Capture>> S_LINE <r#return:(S_ARROW <Type>)?> <generics:GenericDefs> <errors:Errors> => Signature {<>};
 
-#[inline]
-LiteralIntegerSign: &'input str = { "-", "+" };
-LiteralIntegerRaw: (&'input str, &'input str) = {
-    r"\d[\d_]*" => ("", <>),
-    r"0d\s*\d[\d_]*" => ("0d", <>[2..].trim()),
-    r"0b\s*[01][01_]*" => ("0b", <>[2..].trim()),
-    r"0o\s*[0-7][0-7_]*" => ("0o", <>[2..].trim()),
-    r"0x\s*[[:xdigit:]][[[:xdigit:]]_]*" => ("0x", <>[2..].trim()),
-};
-#[inline]
-LiteralIntegerSuffix: &'input str = { "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128" };
-LiteralInteger: LiteralInteger = <sign:LiteralIntegerSign?> <int:LiteralIntegerRaw> <kind:LiteralIntegerSuffix?> => {
-    let kind = kind.unwrap_or("i64");
-    let sign = sign.unwrap_or("+");
-    let int = (int.0, format!("{sign}{}", int.1));
-    let parser = match kind {
-        "i8" => |n, r| Ok::<_, std::num::ParseIntError>(LiteralInteger::I8(i8::from_str_radix(n, r)?)),
-        "i16" => |n, r| Ok(LiteralInteger::I16(i16::from_str_radix(n, r)?)),
-        "i32" => |n, r| Ok(LiteralInteger::I32(i32::from_str_radix(n, r)?)),
-        "i64" => |n, r| Ok(LiteralInteger::I64(i64::from_str_radix(n, r)?)),
-        "i128" => |n, r| Ok(LiteralInteger::I128(i128::from_str_radix(n, r)?)),
-        "u8" => |n, r| Ok(LiteralInteger::U8(u8::from_str_radix(n, r)?)),
-        "u16" => |n, r| Ok(LiteralInteger::U16(u16::from_str_radix(n, r)?)),
-        "u32" => |n, r| Ok(LiteralInteger::U32(u32::from_str_radix(n, r)?)),
-        "u64" => |n, r| Ok(LiteralInteger::U64(u64::from_str_radix(n, r)?)),
-        "u128" => |n, r| Ok(LiteralInteger::U128(u128::from_str_radix(n, r)?)),
-        _ => panic!(),
-    };
-
-    match int {
-        ("" | "0d", dec) => parser(&dec, 10),
-        ("0b", bin) => parser(&bin, 2),
-        ("0o", oct) => parser(&oct, 8),
-        ("0x", hex) => parser(&hex, 16),
-        _ => unreachable!(),
-    }.unwrap()
-};
-#[inline]
-LiteralString: String = r#""(\\.|[^"])*""# => {
-    let mut buf = String::new();
-    let mut subbuf = String::new();
-    let mut escaping = false;
-    let mut ascii_parsing = 0;
-    let mut unicode_parsing = 0;
-    for c in <>.chars().skip(1) {
-        if !escaping && c == '\\' {
-            escaping = true;
-            continue;
-        };
-
-        if escaping {
-            buf.push(match c {
-                '\\' => '\\',
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                'x' => {
-                    ascii_parsing = 2+1;
-                    escaping = false;
-                    continue;
-                },
-                'u' => {
-                    unicode_parsing = 4+1;
-                    escaping = false;
-                    continue;
-                },
-                _ => {
-                    buf.push('\\');
-                    buf.push(c);
-                    escaping = false;
-                    continue;
-                },
-            });
-            escaping = false;
-        } else if ascii_parsing > 0 {
-            if ascii_parsing == 1 {
-                let code = u8::from_str_radix(&std::mem::take(&mut subbuf), 16).unwrap();
-                if code > 127 {
-                    panic!("invalid ascii char");
-                };
-                buf.push(code as char);
-                buf.push(c);
-            } else {
-                subbuf.push(c);
-            };
-            ascii_parsing -= 1;
-        } else if unicode_parsing > 0 {
-            if unicode_parsing == 1 {
-                let code = u32::from_str_radix(&std::mem::take(&mut subbuf), 16).unwrap();
-                buf.push(char::from_u32(code).unwrap());
-                buf.push(c);
-            } else {
-                subbuf.push(c);
-            };
-            unicode_parsing -= 1;
-        } else {
-            buf.push(c);
-        }
-    };
-    let _ = buf.pop();
-    buf
-};
 LiteralBool: bool = {
-    "true" => true,
-    "false" => false,
+    KW_TRUE => true,
+    KW_FALSE => false,
 };
-LiteralExpression: LiteralExpression = {
+LiteralExpression: LiteralExpression<'input> = {
     // 123
-    LiteralInteger => LiteralExpression::Integer(<>),
+    L_INTEGER => LiteralExpression::Integer(<>),
     // 123.12
-    r"[-+]?([0-9]+)\.([0-9]+)" => LiteralExpression::Float(<>.parse::<f64>().unwrap()),
+    L_FLOAT => LiteralExpression::Float(<>),
     // 'c
-    r"'." => LiteralExpression::Char(<>.chars().skip(1).next().unwrap()),
+    L_CHAR => LiteralExpression::Char(<>),
     // "str"
-    LiteralString => LiteralExpression::String(<>),
+    L_STRING => LiteralExpression::String(<>),
     // true/false
     LiteralBool => LiteralExpression::Bool(<>),
-    "(" ")" => LiteralExpression::Void,
+    S_BRACKET_OPEN S_BRACKET_CLOSE => LiteralExpression::Void,
 };
 
-Label: &'input str = "$" <Ident>;
+Label: &'input str = S_DOLLAR <IDENT>;
 
 #[inline]
-IfUnless: &'input str = { "if", "unless" };
+IfUnless: bool = { KW_IF => false, KW_UNLESS => true };
 #[inline]
-WhileUntil: &'input str = { "while", "until" };
+WhileUntil: bool = { KW_WHILE => false, KW_UNTIL => true };
 
 BlockExpressionKind: BlockExpressionKind<'input> = {
     // { ... }
     <code:StatementBlock> => BlockExpressionKind::Simple {<>},
     // if true.eq(true) { ... } else { ... }
-    <inverted:IfUnless> <check:Expression> <code:StatementBlock> <otherwise:("else" <StatementBlock>)?> => BlockExpressionKind::Condition { check, code, otherwise, inverted: inverted == "unless"},
+    <inverted:IfUnless> <check:Expression> <code:StatementBlock> <otherwise:(KW_ELSE <StatementBlock>)?> => BlockExpressionKind::Condition { check, code, otherwise, inverted},
     // sel val { of true { ... } ... or else { ... } }
-    "sel" <of:Expression> "{" <cases:("of" <Expression> <StatementBlock>)*> <fallback:("or" "else" <StatementBlock>)?> "}" => BlockExpressionKind::Selector {<>},
+    KW_SEL <of:Expression> S_CURLY_OPEN <cases:(KW_OF <Expression> <StatementBlock>)*> <fallback:(KW_OR KW_ELSE <StatementBlock>)?> S_CURLY_CLOSE => BlockExpressionKind::Selector {<>},
     // loop { ... }
-    "loop" <code:StatementBlock> => BlockExpressionKind::Loop {<>},
+    KW_LOOP <code:StatementBlock> => BlockExpressionKind::Loop {<>},
     // while cond { ... }
-    <inverted:WhileUntil> <check:Expression> <code:StatementBlock> => BlockExpressionKind::While { check, code, inverted: inverted == "until", do_first: false },
+    <inverted:WhileUntil> <check:Expression> <code:StatementBlock> => BlockExpressionKind::While { check, code, inverted, do_first: false },
     // do { ... } while { ... }
-    "do" <code:StatementBlock> <inverted:WhileUntil> <check:StatementBlock> => BlockExpressionKind::While { code, check: check.into(), inverted: inverted == "until", do_first: true },
+    KW_DO <code:StatementBlock> <inverted:WhileUntil> <check:StatementBlock> => BlockExpressionKind::While { code, check: check.into(), inverted, do_first: true },
     // over [1, 2, 3] with var { ... }
-    "over" <what:Expression> "with" <with:Ident> <code:StatementBlock> => BlockExpressionKind::Over {<>},
+    KW_OVER <what:Expression> KW_WITH <with:IDENT> <code:StatementBlock> => BlockExpressionKind::Over {<>},
     // handle func() { !Error with err { ... } ... else with err { ... } }
-    "handle" <of:Expression> "{" <handlers:("!" <Item> "with" <Ident> <StatementBlock>)*> <fallback:("else" "with" <Ident> <StatementBlock>)?> "}" => BlockExpressionKind::Handle {<>},
+    KW_HANDLE <of:Expression> S_CURLY_OPEN <handlers:(S_EXCLAMATION <Item> KW_WITH <IDENT> <StatementBlock>)*> <fallback:(KW_ELSE KW_WITH <IDENT> <StatementBlock>)?> S_CURLY_CLOSE => BlockExpressionKind::Handle {<>},
     // unhandle { foobar() }
-    "unhandle" <code:StatementBlock> => BlockExpressionKind::Unhandle {<>},
+    KW_UNHANDLE <code:StatementBlock> => BlockExpressionKind::Unhandle {<>},
 }
-BlockExpression: BlockExpression<'input> = "#" <label:Label?> <kind:BlockExpressionKind> =>
+BlockExpression: BlockExpression<'input> = S_HASHTAG <label:Label?> <kind:BlockExpressionKind> =>
     BlockExpression {
         label, kind: Box::new(kind),
     };
 
 #[inline]
-Field: (&'input str, Expression<'input>) = <Ident> ":" <Expression>;
+Field: (&'input str, Expression<'input>) = <IDENT> S_TWO_DOTS <Expression>;
 ConstructExpression: ConstructExpression<'input> = {
     // [a, b]
-    "[" <vals:Comma<Expression>> "]" => ConstructExpression::Array {<>},
+    S_SQUARE_OPEN <vals:Comma<Expression>> S_SQUARE_CLOSE => ConstructExpression::Array {<>},
     // Type (( a: b ))
-    <what:Item> "[" <fields:Comma<Field>> "]" => ConstructExpression::Data {<>},
+    <what:Item> S_SQUARE_OPEN <fields:Comma<Field>> S_SQUARE_CLOSE => ConstructExpression::Data {<>},
 };
 
 ActionExpression: ActionExpression<'input> = {
     // bruh(foo, bar);
-    <what:Expression> "(" <args:Comma<Expression>> ")" => ActionExpression::Call {<>},
+    <what:Expression> S_BRACKET_OPEN <args:Comma<Expression>> S_BRACKET_CLOSE => ActionExpression::Call {<>},
     // num.add(thing);
-    <what:Expression> "!" <method:Ident> "(" <args:Comma<Expression>> ")" => ActionExpression::MethodCall {<>},
+    <what:Expression> S_EXCLAMATION <method:IDENT> S_BRACKET_OPEN <args:Comma<Expression>> S_BRACKET_CLOSE => ActionExpression::MethodCall {<>},
     // something.field
-    <of:Expression> "." <field:Ident> => ActionExpression::Access {<>},
+    <of:Expression> S_DOT <field:IDENT> => ActionExpression::Access {<>},
     // var
     <item:Item> => ActionExpression::Load {<>},
 };
@@ -299,86 +288,80 @@ Statement: Statement<'input> = {
     // call()
     <expr:Expression> => Statement::Eval {<>},
     // something = else
-    <what:Expression> "=" <to:Expression> => Statement::Assignment {<>},
+    <what:Expression> S_EQUAL <to:Expression> => Statement::Assignment {<>},
     // let var: Type = "abc";
-    "let" <what:Capture> <with:("=" <Expression>)?> => Statement::Declaration {<>},
+    KW_LET <what:Capture> <with:(S_EQUAL <Expression>)?> => Statement::Declaration {<>},
     // break $outside some
-    "escape" <label:Label> <value:Expression?> => Statement::Escape {<>},
+    KW_ESCAPE <label:Label> <value:Expression?> => Statement::Escape {<>},
     // continue $outside
-    "repeat" <label:Label> => Statement::Repeat {<>},
+    KW_REPEAT <label:Label> => Statement::Repeat {<>},
     // return 42
-    "return" <value:Expression?> => Statement::Return {<>},
+    KW_RETURN <value:Expression?> => Statement::Return {<>},
     // throw SomeError
-    "throw" <error:Expression> => Statement::Throw {<>},
-    "vmdebug" <dcode:AsmU32> => Statement::VmDebug {<>},
+    KW_THROW <error:Expression> => Statement::Throw {<>},
+    KW_VM_DEBUG <dcode:AsmU32> => Statement::VmDebug {<>},
 };
 
-pub InlineStatementBlock: StatementBlock<'input> = <code:Sep<Statement, ";">> <closed:";"?> =>
+InlineStatementBlock: StatementBlock<'input> = <code:Sep<Statement, S_DOT_COMMA>> <closed:S_DOT_COMMA?> =>
     StatementBlock {
         code, closed: closed.is_some()
     };
 
-StatementBlock: StatementBlock<'input> = "{" <InlineStatementBlock> "}";
+StatementBlock: StatementBlock<'input> = S_CURLY_OPEN <InlineStatementBlock> S_CURLY_CLOSE;
 
 #[inline]
-AsmU32: u32 = LiteralIntegerRaw => match <> {
-    ("" | "0d", dec) => u32::from_str_radix(dec, 10),
-    ("0b", bin) => u32::from_str_radix(bin, 2),
-    ("0o", oct) => u32::from_str_radix(oct, 8),
-    ("0x", hex) => u32::from_str_radix(hex, 16),
-    _ => unreachable!(),
-}.unwrap();
+AsmU32: u32 = L_INTEGER => match <> {
+    Integer::I64(n) => n.try_into().unwrap(),
+    _ => panic!()
+};
 
 #[inline]
-AsmId: AsmId = "#" <space:AsmU32> ":" <item:AsmU32> => AsmId {<>};
+AsmId: AsmId = S_HASHTAG <space:AsmU32> S_TWO_DOTS <item:AsmU32> => AsmId {<>};
 
 #[inline]
-AsmPos: usize = LiteralIntegerRaw => match <> {
-    ("" | "0d", dec) => usize::from_str_radix(dec, 10),
-    ("0b", bin) => usize::from_str_radix(bin, 2),
-    ("0o", oct) => usize::from_str_radix(oct, 8),
-    ("0x", hex) => usize::from_str_radix(hex, 16),
-    _ => unreachable!(),
-}.unwrap();
+AsmPos: usize = L_INTEGER => match <> {
+    Integer::I64(n) => n.try_into().unwrap(),
+    _ => panic!()
+};
 
 AsmOp: AsmOp<'input> = {
-    "pack" <r#type:Either<(AsmId AsmPos), Item>> => AsmOp::Pack {<>},
-    "loaditem" <item:Either<AsmId, LiteralExpression>> => AsmOp::LoadConstItem {<>},
-    "loadfunc" <func:Either<AsmId, Item>> => AsmOp::LoadFunction {<>},
-    "loadimpl" <of:Either<(AsmId AsmU32), Item>> => AsmOp::LoadImplementation {<>},
-    "loadsysitem" <id:Either<AsmId, Ident>> => AsmOp::LoadSystemItem {<>},
-    "access" <id:Either<AsmU32, Item>> => AsmOp::Access {<>},
-    "call" <which:AsmPos> => AsmOp::Call {<>},
-    "syscall" <id:Either<AsmId, Ident>> => AsmOp::SystemCall {<>},
-    "return" => AsmOp::Return,
-    "swap" <with:AsmPos> => AsmOp::Swap {<>},
-    "pull" <which:AsmPos> => AsmOp::Pull {<>},
-    "pop" <count:AsmPos> <offset:AsmPos> => AsmOp::Pop {<>},
-    "copy" <count:AsmPos> <offset:AsmPos> => AsmOp::Copy {<>},
-    "jump" <to:Either<AsmPos, Label>> <check:LiteralBool?> => AsmOp::Jump {<>},
+    KW_PACK <r#type:Either<(AsmId AsmPos), Item>> => AsmOp::Pack {<>},
+    KW_LOAD_ITEM <item:Either<AsmId, LiteralExpression>> => AsmOp::LoadConstItem {<>},
+    KW_LOAD_FUNC <func:Either<AsmId, Item>> => AsmOp::LoadFunction {<>},
+    KW_LOAD_IMPL <of:Either<(AsmId AsmU32), Item>> => AsmOp::LoadImplementation {<>},
+    KW_LOAD_SYS_ITEM <id:Either<AsmId, IDENT>> => AsmOp::LoadSystemItem {<>},
+    KW_ACCESS <id:Either<AsmU32, Item>> => AsmOp::Access {<>},
+    KW_CALL <which:AsmPos> => AsmOp::Call {<>},
+    KW_SYS_CALL <id:Either<AsmId, IDENT>> => AsmOp::SystemCall {<>},
+    KW_RETURN => AsmOp::Return,
+    KW_SWAP <with:AsmPos> => AsmOp::Swap {<>},
+    KW_PULL <which:AsmPos> => AsmOp::Pull {<>},
+    KW_POP <count:AsmPos> <offset:AsmPos> => AsmOp::Pop {<>},
+    KW_COPY <count:AsmPos> <offset:AsmPos> => AsmOp::Copy {<>},
+    KW_JUMP <to:Either<AsmPos, Label>> <check:LiteralBool?> => AsmOp::Jump {<>},
 };
 AsmInstruction: AsmInstruction<'input> = <label:Label?> <op:AsmOp> => AsmInstruction {<>};
-AsmBlock: AsmBlock<'input> = "asm" "{" <instrs:AsmInstruction*> "}" => AsmBlock {<>};
+AsmBlock: AsmBlock<'input> = KW_ASM S_CURLY_OPEN <instrs:AsmInstruction*> S_CURLY_CLOSE => AsmBlock {<>};
 
 // |...| { ... }
 Closure: Closure<'input> = <sig:Signature> <code:Either<StatementBlock, AsmBlock>> => Closure {<>};
 
 Declaration: Declaration<'input> = {
     // include #core::entry::Entry
-    "include" <item:Item> => Declaration::Include {<>},
+    KW_INCLUDE <item:Item> => Declaration::Include {<>},
 //    // module name { ... }
-//    "module" <name:Ident> <r#mod:("{" <Module> "}")?> => Declaration::Module {<>},
+//    "module" <name:IDENT> <r#mod:("{" <Module> "}")?> => Declaration::Module {<>},
     // const LENGTH: Int = 1
-    "const" <what:Capture> "=" <val:LiteralExpression> => Declaration::Const {<>},
+    KW_CONST <what:Capture> S_EQUAL <val:LiteralExpression> => Declaration::Const {<>},
     // data Foo (( bar: Int ))
-    "data" <name:Ident> "{" <fields:Comma<(<Ident> ":" <Type>)>> "}" => Declaration::Data {<>},
+    KW_DATA <name:IDENT> S_CURLY_OPEN <fields:Comma<(<IDENT> S_TWO_DOTS <Type>)>> S_CURLY_CLOSE => Declaration::Data {<>},
     // proto Add<O, R> { fnc add |...|; }
     // proto [Add + Sub + Mul + Div + Display] Real { ... }
-    "proto" <extends:OptDefault<("[" <SepReq<Item, "+">> "]")>> <name:Ident> <generics:GenericDefs> "{" <sigs:("fnc" <Ident> <Signature> ";")*> "}" => Declaration::Protocol {<>},
+    KW_PROTO <extends:OptDefault<(S_SQUARE_OPEN <SepReq<Item, S_PLUS>> S_SQUARE_CLOSE)>> <name:IDENT> <generics:GenericDefs> S_CURLY_OPEN <sigs:(KW_FNC <IDENT> <Signature> S_DOT_COMMA)*> S_CURLY_CLOSE => Declaration::Protocol {<>},
     // impl/Vector Add<Self, Self> { fnc add |...| { ... }; }
-    "impl" <r#for:("/" <Item>)?> "[" <of:ProtocolType> "]" "{" <fncs:("fnc" <Ident> <Closure> ";")*> "}" => Declaration::Implementation {<>},
+    KW_IMPL <r#for:(S_SLASH <Item>)?> S_SQUARE_OPEN <of:ProtocolType> S_SQUARE_CLOSE S_CURLY_OPEN <fncs:(KW_FNC <IDENT> <Closure> S_DOT_COMMA)*> S_CURLY_CLOSE => Declaration::Implementation {<>},
     // fnc/Vector [Zero] zero |...| { ... }
-    "fnc" <of:("/" <Item>)?> <r#impl:("[" <ProtocolType> "]")?> <name:Ident> <closure:Closure> => Declaration::Function {<>},
+    KW_FNC <of:(S_SLASH <Item>)?> <r#impl:(S_SQUARE_OPEN <ProtocolType> S_SQUARE_CLOSE)?> <name:IDENT> <closure:Closure> => Declaration::Function {<>},
 };
 
 pub Module: Module<'input> = <decls:Declaration*> => Module {<>};

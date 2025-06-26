@@ -3,14 +3,16 @@ name = "nolia"
 version = "0.1.0"
 edition = "2021"
 
-
 [build-dependencies]
-lalrpop = "0.22.1"
+lalrpop = "0.22.2"
 
 [dependencies]
-lalrpop-util = { version = "0.22.1", features = ["unicode", "lexer"] }
-either = "1.14.0"
+either = "1.15.0"
+lalrpop-util = { version = "0.22.2" }
+lexgen = "0.16.0"
+lexgen_util = "0.16.0"
 rand = "0.9.1"
 
 [profile.release]
 lto = "thin"
+strip = "debuginfo"
