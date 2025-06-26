@@ -1,0 +1,13 @@
+[package]
+name = "compiler"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+rand = "0.9.1"
+either.workspace = true
+syntax.workspace = true
+vm.workspace = true

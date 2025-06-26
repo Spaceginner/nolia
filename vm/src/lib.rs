@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZero;
 use std::ops::{ControlFlow, Index, Range, RangeTo};
-use crate::parser::ast;
+use syntax::parser::ast;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Id {
@@ -16,6 +16,12 @@ impl From<ast::AsmId> for Id {
             space: NonZero::new(value.space),
             item: value.item
         }
+    }
+}
+
+impl From<usize> for Id {
+    fn from(item: usize) -> Self {
+        Self { space: None, item: item.try_into().unwrap() }
     }
 }
 
@@ -343,7 +349,7 @@ impl From<(Box<str>, (u16, u16, u16))> for CrateId {
 
 
 #[derive(Debug)]
-pub struct Module {
+pub struct Crate {
     pub id: CrateId,
     pub mod_table: HashMap<NonZero<u32>, usize>,
     pub items: Vec<ConstItem>,
@@ -470,11 +476,11 @@ impl FunctionScope {
     
     fn get_mod_i(&self, id: Id, vm: &Vm) -> usize {
         // fixme remove an indirection through vm
-        id.space.map_or(self.func.mod_scope, |s| vm.modules[self.func.mod_scope].mod_table[&s])
+        id.space.map_or(self.func.mod_scope, |s| vm.crates[self.func.mod_scope].mod_table[&s])
     }
     
-    fn get_mod<'v>(&self, id: Id, vm: &'v Vm) -> &'v Module {
-        &vm.modules[self.get_mod_i(id, vm)]
+    fn get_mod<'v>(&self, id: Id, vm: &'v Vm) -> &'v Crate {
+        &vm.crates[self.get_mod_i(id, vm)]
     }
 
     pub fn step(&mut self, vm: &mut Vm) -> FStep {
@@ -715,7 +721,7 @@ impl Index<RangeTo<usize>> for Stack {
 #[derive(Default)]
 pub struct Vm {
     mod_map: HashMap<CrateId, usize>,
-    modules: Vec<Module>,
+    crates: Vec<Crate>,
     memory: Memory,
     stack: Stack,
     scopes: Vec<FunctionScope>,
@@ -749,13 +755,13 @@ impl Vm {
     }
     
     pub fn load_crate(&mut self, crate_decl: CrateDeclaration) -> usize {
-        let index = self.modules.len();
+        let index = self.crates.len();
 
         let mod_table = crate_decl.dependencies.into_iter()
             .map(|(id, space)| (space, self.mod_map[&id]))
             .collect::<HashMap<_, _>>();
         
-        let module = Module {
+        let module = Crate {
             id: crate_decl.id,
             functions: crate_decl.functions.into_iter().map(|decl| Function { code: decl.code, mod_scope: index }).collect(),
             items: crate_decl.items,
@@ -764,12 +770,16 @@ impl Vm {
         };
 
         self.mod_map.insert(module.id, index);
-        self.modules.push(module);
+        self.crates.push(module);
         index
     }
-    
-    pub fn call(&mut self, mod_id: usize, func_id: u32) {
-        self.scopes.push(FunctionScope::new(self.modules[mod_id].functions[func_id as usize].clone()))
+
+    pub fn find_crate(&self, crate_id: CrateId) -> Option<usize> {
+        self.crates.iter().position(|c| c.id == crate_id)
+    }
+
+    pub fn call(&mut self, crt_id: usize, func_id: u32) {
+        self.scopes.push(FunctionScope::new(self.crates[crt_id].functions[func_id as usize].clone()))
     }
     
     pub fn step(&mut self) -> Option<Result<(), StepError>> {

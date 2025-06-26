@@ -1,0 +1,17 @@
+[package]
+name = "syntax"
+build = "build.rs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[build-dependencies]
+lalrpop = "0.22.2"
+
+[dependencies]
+lalrpop-util = { version = "0.22.2" }
+lexgen = "0.16.0"
+lexgen_util = "0.16.0"
+either.workspace = true

@@ -1,19 +1,10 @@
-#![feature(let_chains)]
-#![feature(if_let_guard)]
-#![feature(try_blocks)]
-
-use compiler::lcr::Path;
-use crate::compiler::{Compiler, CrateSource};
-
-pub mod parser;
-mod vm;
-#[macro_use]
-mod compiler;
+use compiler::{lcr::Path, Compiler, CrateSource, path};
+use syntax::{lexer::Lexer, parser::ModuleParser};
 
 fn main() {
     let file = std::fs::read_to_string("test.nol").unwrap();
-    let lexer = parser::Lexer::new(&file);
-    let parsed = parser::ModuleParser::new().parse(lexer).unwrap();
+    let lexer = Lexer::new(&file);
+    let parsed = ModuleParser::new().parse(lexer).unwrap();
 
     let mut compiler = Compiler::default();
 

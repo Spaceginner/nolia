@@ -1,10 +1,10 @@
 pub mod lcr;
-pub(super) mod conversions;
+pub mod conversions;
 pub mod path;
 
 use std::collections::HashMap;
 use rand::distr::SampleString;
-use crate::parser::ast;
+use syntax::parser::ast;
 use super::Compiler;
 
 

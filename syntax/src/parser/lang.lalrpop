@@ -1,9 +1,7 @@
 use std::borrow::Cow;
 use either::Either;
-use super::{
-    ast::*,
-    lexer::{Loc, Error, Lexer, Token, Symbol, Keyword, Literal, Integer},
-};
+use crate::lexer::{Loc, Error, Lexer, Token, Symbol, Keyword, Literal, Integer};
+use super::ast::*;
 
 grammar<'input>;
 

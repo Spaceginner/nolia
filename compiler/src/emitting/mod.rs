@@ -2,7 +2,6 @@ mod functions;
 mod types;
 
 use std::collections::HashMap;
-use crate::vm;
 use super::Compiler;
 use super::lowering::lcr;
 

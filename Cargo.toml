@@ -1,18 +1,37 @@
-[package]
-name = "nolia"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "compiler",
+    "syntax",
+    "vm",
+]
 
-[build-dependencies]
-lalrpop = "0.22.2"
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+authors = ["Spaceginner <ivan.demian2009@gmail.com>"]
+repository = "https://github.com/Spaceginner/nolia"
+license = "LGPL-3"
 
-[dependencies]
+[workspace.dependencies]
 either = "1.15.0"
-lalrpop-util = { version = "0.22.2" }
-lexgen = "0.16.0"
-lexgen_util = "0.16.0"
-rand = "0.9.1"
+syntax = { path = "syntax" }
+compiler = { path = "compiler" }
+vm = { path = "vm" }
 
 [profile.release]
 lto = "thin"
 strip = "debuginfo"
+
+[package]
+name = "nolia"
+readme = "readme.md"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+syntax.workspace = true
+compiler.workspace = true
+vm.workspace = true

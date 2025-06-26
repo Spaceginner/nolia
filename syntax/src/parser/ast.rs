@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use either::Either;
-pub use super::lexer::Integer;
+pub use crate::lexer::Integer;
 
 #[derive(Debug, Clone)]
 pub enum ItemRoot<'s> {

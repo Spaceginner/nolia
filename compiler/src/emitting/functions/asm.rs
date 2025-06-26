@@ -1,18 +1,17 @@
 use std::collections::HashMap;
-use crate::compiler::emitting::functions::FunctionCompiler;
-use crate::compiler::lcr;
-use crate::vm;
+use super::super::functions::FunctionCompiler;
+use super::lcr;
 
-pub(super) struct AsmFuncCompiler<'c, 'm> {
+pub struct AsmFuncCompiler<'c, 'm> {
     comp: &'c mut FunctionCompiler<'m>,
 }
 
 impl<'c, 'm> AsmFuncCompiler<'c, 'm> {
-    pub(super) fn new(comp: &'c mut FunctionCompiler<'m>) -> Self {
+    pub fn new(comp: &'c mut FunctionCompiler<'m>) -> Self {
         Self { comp }
     }
 
-    pub(super) fn compile(
+    pub fn compile(
         self,
         asm_block: lcr::AsmBlock,
     ) -> Vec<vm::Op> {

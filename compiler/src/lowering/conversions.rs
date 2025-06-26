@@ -1,6 +1,5 @@
 use std::num::NonZero;
-use crate::vm;
-use crate::parser::ast;
+use syntax::parser::ast;
 use super::lcr;
 
 impl<'p, 's> From<&'p [&'s str]> for lcr::Path {
@@ -134,13 +133,6 @@ impl From<lcr::AsmId> for vm::SysCallId {
 impl From<lcr::AsmId> for vm::SysItemId {
     fn from(asm_id: lcr::AsmId) -> Self {
         Self::try_from(vm::Id::from(asm_id)).unwrap()
-    }
-}
-
-
-impl From<usize> for vm::Id {
-    fn from(item: usize) -> Self {
-        Self { space: None, item: item.try_into().unwrap() }
     }
 }
 

@@ -9,7 +9,7 @@ pub struct Path {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub (in super::super) enum IntegerTypeSize {
+pub enum IntegerTypeSize {
     Byte,   // 8
     Word,   // 16
     DWord,  // 32
@@ -19,7 +19,7 @@ pub (in super::super) enum IntegerTypeSize {
 
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub (in super::super) enum PrimitiveType {
+pub enum PrimitiveType {
     String,
     Char,
     Bool,
@@ -32,25 +32,25 @@ pub (in super::super) enum PrimitiveType {
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct DataType {
+pub struct DataType {
     pub fields: Vec<(Box<str>, TypeRef)>
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub (in super::super) struct ConcreteTypeId {
+pub struct ConcreteTypeId {
     pub path: Path,
 }
 
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct ConcreteTypeRef {
+pub struct ConcreteTypeRef {
     pub id: ConcreteTypeId,
     pub generics: Vec<TypeRef>,
 }
 
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum TypeRef {
+pub enum TypeRef {
     Op(Vec<ConcreteTypeRef>),
     Data(ConcreteTypeId),
     Primitive(PrimitiveType),
@@ -61,36 +61,36 @@ pub (in super::super) enum TypeRef {
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct FunctionType {
+pub struct FunctionType {
     pub captures: Vec<(Box<str>, TypeRef)>,
     pub r#return: TypeRef,
     pub generics: GenericDefs,
     pub errors: Vec<ConcreteTypeId>,
 }
 
-pub (in super::super) type GenericDefs = Vec<(Box<str>, Option<TypeRef>)>;
+pub type GenericDefs = Vec<(Box<str>, Option<TypeRef>)>;
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct ProtocolType {
+pub struct ProtocolType {
     pub generics: GenericDefs,
     pub extends: Vec<ConcreteTypeId>,
     pub sigs: Vec<(Box<str>, FunctionType)>
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct Declaration {
+pub struct Declaration {
     pub name: Box<str>,
     pub r#type: TypeRef,
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct IntermediatePath {
+pub struct IntermediatePath {
     pub var: Option<Box<str>>,
     pub path: Path,
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum ActionInstruction {
+pub enum ActionInstruction {
     Load {
         item: IntermediatePath,
     },
@@ -110,7 +110,7 @@ pub (in super::super) enum ActionInstruction {
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum LiteralInteger {
+pub enum LiteralInteger {
     I8(i8),
     I16(i16),
     I32(i32),
@@ -125,7 +125,7 @@ pub (in super::super) enum LiteralInteger {
 
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum LiteralValue {
+pub enum LiteralValue {
     Integer(LiteralInteger),
     Float(f64),
     Char(char),
@@ -135,7 +135,7 @@ pub (in super::super) enum LiteralValue {
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum ConstructInstruction {
+pub enum ConstructInstruction {
     Array {
         vals: Vec<SBlock>,
     },
@@ -146,7 +146,7 @@ pub (in super::super) enum ConstructInstruction {
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum StatementInstruction {
+pub enum StatementInstruction {
     Assignment {
         what: SBlock,
         to: SBlock,
@@ -170,7 +170,7 @@ pub (in super::super) enum StatementInstruction {
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum Instruction {
+pub enum Instruction {
     DoBlock(SBlock),
     LoadLiteral(LiteralValue),
     DoAction(ActionInstruction),
@@ -180,7 +180,7 @@ pub (in super::super) enum Instruction {
 
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum SBlockTag {
+pub enum SBlockTag {
     // used internally when desugaring to not completely spell out simple block each time just to put a label
     Block {
         block: SBlock,
@@ -207,20 +207,20 @@ pub (in super::super) enum SBlockTag {
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct SBlock {
+pub struct SBlock {
     pub tag: Box<SBlockTag>,
     pub label: Option<Box<str>>,
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct AsmId {
+pub struct AsmId {
     pub space: Option<NonZero<u32>>,
     pub item: u32,
 }
 
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum AsmOp {
+pub enum AsmOp {
     Pack { r#type: Either<(AsmId, usize), ConcreteTypeId> },
     LoadConstItem { item: Either<AsmId, LiteralValue> },
     LoadFunction { func: Either<AsmId, Path> },
@@ -238,31 +238,31 @@ pub (in super::super) enum AsmOp {
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct AsmInstruction {
+pub struct AsmInstruction {
     pub op: AsmOp,
     pub label: Option<Box<str>>,
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct AsmBlock {
+pub struct AsmBlock {
     pub code: Vec<AsmInstruction>,
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) enum Block {
+pub enum Block {
     Structured(SBlock),
     Asm(AsmBlock),
 }
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct Function {
+pub struct Function {
     pub r#type: FunctionType,
     pub code: Block,
 }
 
 
 #[derive(Debug, Clone)]
-pub (in super::super) struct Crate {
+pub struct Crate {
     pub deps: Vec<(Box<str>, (u16, u16, u16))>,
     pub implementation_store: HashMap<ConcreteTypeId, Vec<(ConcreteTypeId, Vec<Function>)>>,  // data type id -> (protocol id, impl funcs)
     pub function_store: HashMap<Path, Function>,

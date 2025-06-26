@@ -1,10 +1,9 @@
 use std::collections::HashMap;
-use crate::compiler::emitting::functions::FunctionCompiler;
-use crate::compiler::emitting::types::{resolve_type, returns_something};
-use crate::compiler::lcr;
-use crate::vm;
+use super::super::functions::FunctionCompiler;
+use super::super::types::{resolve_type, returns_something};
+use super::lcr;
 
-pub(super) struct SFuncCompiler<'c, 'm> {
+pub struct SFuncCompiler<'c, 'm> {
     comp: &'c mut FunctionCompiler<'m>,
     ret_type: lcr::TypeRef,
     arg_count: usize,
@@ -21,7 +20,7 @@ struct BlockInfo {
 }
 
 impl<'c, 'm> SFuncCompiler<'c, 'm> {
-    pub(super) fn new(comp: &'c mut FunctionCompiler<'m>, func_type: lcr::FunctionType) -> Self {
+    pub fn new(comp: &'c mut FunctionCompiler<'m>, func_type: lcr::FunctionType) -> Self {
         let arg_count = func_type.captures.len();
 
         Self {
@@ -38,7 +37,7 @@ impl<'c, 'm> SFuncCompiler<'c, 'm> {
         }
     }
 
-    pub(super) fn compile(mut self, s_block: lcr::SBlock) -> Vec<vm::Op> {
+    pub fn compile(mut self, s_block: lcr::SBlock) -> Vec<vm::Op> {
         if !self.resolve_type(&s_block).within(&self.ret_type) {
             panic!("return value is of wrong return type");
         };

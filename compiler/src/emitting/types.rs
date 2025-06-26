@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use super::super::lowering::lcr;
 
-pub(super) fn resolve_type(
+pub fn resolve_type(
     s_block: &lcr::SBlock,
     func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>,
     var_scope: &(HashMap<Box<str>, (usize, lcr::TypeRef)>, usize),
@@ -126,7 +126,7 @@ fn resolve_type_inner<'b>(
 /// matches resolve_type()
 /// for use when no need to know precise type
 /// None - !, Some(false) - nothing, Some(true) - 1 item
-pub(super) fn returns_something(s_block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>) -> Option<bool> {
+pub fn returns_something(s_block: &lcr::SBlock, func_map: &HashMap<lcr::Path, (usize, lcr::FunctionType)>) -> Option<bool> {
     returns_something_inner(s_block, func_map, false)
 }
 
@@ -223,7 +223,7 @@ fn can_escape(cur_s_block: &lcr::SBlock, within: &lcr::SBlock) -> bool {
 }
 
 
-pub(super) fn lit_type(lit: &lcr::LiteralValue) -> lcr::PrimitiveType {
+pub fn lit_type(lit: &lcr::LiteralValue) -> lcr::PrimitiveType {
     match lit {
         lcr::LiteralValue::Integer(n) =>
             match n {
